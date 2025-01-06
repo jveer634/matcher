@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use crate::orderbook::{OrderBook, OrderType};
+use crate::orderbook::orderbook::{OrderBook, OrderType};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct TradingPair {
@@ -52,7 +52,7 @@ impl Matcher {
                 println!("OrderBook for pair {pair} already exists: {:?}", order_book);
             }
             None => {
-                let order_book = OrderBook::new();
+                let order_book = OrderBook::new(pair.id.clone());
                 self.pairs.insert(pair.id.clone(), order_book);
                 println!("Added new pair: {:?}", pair);
             }
