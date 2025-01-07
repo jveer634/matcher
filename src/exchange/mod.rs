@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::HashMap;
 
-use crate::orderbook::orderbook::{OrderBook, OrderType};
+use crate::orderbook::{order::OrderType, orderbook::OrderBook};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct TradingPair {
@@ -70,12 +70,20 @@ impl Matcher {
     ) -> Result<String, String> {
         match self.pairs.get_mut(&pair_id) {
             Some(book) => {
-                book.add_order(order_type, price, quantity);
-                return Ok("Order placed ".to_owned());
+                return book.add_order(order_type, price, quantity);
             }
             None => {
                 return Err("Invalid PoolId".to_owned());
             }
+        }
+    }
+
+    pub fn cancel_order(&mut self, order_id: String) -> Result<(), String> {
+        let pair_id = order_id.split('-').next().unwrap().to_string();
+
+        match self.pairs.get_mut(&pair_id) {
+            Some(book) => book.cancel_order(order_id),
+            None => Err("Invalid Order Id".to_string()),
         }
     }
 }

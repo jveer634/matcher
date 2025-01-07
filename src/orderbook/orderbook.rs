@@ -1,65 +1,17 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use super::id_generator::IdGenerator;
-
-pub const SCALAR: f64 = 10000.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Price {
-    integral: u64,
-    fractional: u64,
-}
-
-impl Price {
-    fn new(price: f64) -> Price {
-        Price {
-            integral: price as u64,
-            fractional: ((price % 1.0) * SCALAR) as u64,
-        }
-    }
-
-    pub fn to_f64(&self) -> f64 {
-        (self.integral) as f64 + (self.fractional as f64 / SCALAR)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum OrderType {
-    Buy,
-    Sell,
-    LimitSell,
-    LimitBuy,
-}
-
-#[derive(Debug, Clone)]
-pub struct Order {
-    id: String,
-    quantity: f64,
-    order_type: OrderType,
-    price: Option<Price>,
-}
-
-impl Order {
-    pub fn new(id: String, quantity: f64, order_type: OrderType, price: Option<f64>) -> Order {
-        let price = match price {
-            Some(p) => Some(Price::new(p)),
-            None => None,
-        };
-
-        Order {
-            id,
-            quantity,
-            order_type,
-            price,
-        }
-    }
-}
+use super::{
+    id_generator::IdGenerator,
+    order::{Order, OrderType},
+    price::Price,
+};
 
 #[derive(Debug)]
 pub struct OrderBook {
     id_generator: IdGenerator,
-    buy_orders: BTreeMap<Price, Vec<Order>>,
-    sell_orders: BTreeMap<Price, Vec<Order>>,
+    buy_orders: BTreeMap<Price, VecDeque<Order>>,
+    sell_orders: BTreeMap<Price, VecDeque<Order>>,
+    order_index: HashMap<String, Order>,
 }
 
 impl OrderBook {
@@ -68,27 +20,43 @@ impl OrderBook {
             id_generator: IdGenerator::new(pair_id),
             buy_orders: BTreeMap::new(),
             sell_orders: BTreeMap::new(),
+            order_index: HashMap::new(),
         }
     }
 
-    pub fn add_order(&mut self, order_type: OrderType, price: Option<f64>, quantity: f64) {
+    pub fn add_order(
+        &mut self,
+        order_type: OrderType,
+        price: Option<f64>,
+        quantity: f64,
+    ) -> Result<String, String> {
         let id = self.id_generator.generate_order_id();
-        let order = Order::new(id, quantity, order_type, price);
+        let order = Order::new(id.clone(), quantity, order_type, price);
+
+        self.order_index.insert(order.id.clone(), order.clone());
 
         match order.order_type {
             OrderType::LimitBuy => {
-                let p = Price::new(price.expect("LimitBuy needs a price"));
-                let orders = self.buy_orders.entry(p.clone()).or_insert(vec![]);
-                orders.push(order);
+                let p = match price {
+                    Some(pr) => Price::new(pr),
+                    None => return Err("LimitBuy needs a price".to_owned()),
+                };
+                let orders = self.buy_orders.entry(p.clone()).or_insert(VecDeque::new());
+                orders.push_back(order);
             }
             OrderType::LimitSell => {
-                let p = Price::new(price.expect("LimitSell needs a price"));
-                let orders = self.sell_orders.entry(p.clone()).or_insert(vec![]);
-                orders.push(order);
+                let p = match price {
+                    Some(pr) => Price::new(pr),
+                    None => return Err("LimitSell needs a price".to_owned()),
+                };
+                let orders = self.sell_orders.entry(p.clone()).or_insert(VecDeque::new());
+                orders.push_back(order);
             }
             OrderType::Buy => self.match_order(order),
             OrderType::Sell => self.match_order(order),
         }
+
+        return Ok(id);
     }
 
     fn match_order(&mut self, mut order: Order) {
@@ -101,7 +69,7 @@ impl OrderBook {
                         break;
                     }
 
-                    while let Some(sell_order) = orders.first_mut() {
+                    while let Some(sell_order) = orders.front_mut() {
                         let traded_quantity = order.quantity.min(sell_order.quantity);
 
                         sell_order.quantity -= traded_quantity;
@@ -110,6 +78,7 @@ impl OrderBook {
                         trades.push((sell_order.clone(), order.clone(), traded_quantity));
 
                         if sell_order.quantity == 0.0 {
+                            self.order_index.remove(&sell_order.id);
                             orders.remove(0);
                         }
 
@@ -126,7 +95,7 @@ impl OrderBook {
                         break;
                     }
 
-                    while let Some(buy_order) = orders.first_mut() {
+                    while let Some(buy_order) = orders.front_mut() {
                         let traded_quantity = order.quantity.min(buy_order.quantity);
 
                         buy_order.quantity -= traded_quantity;
@@ -135,9 +104,9 @@ impl OrderBook {
                         trades.push((buy_order.clone(), order.clone(), traded_quantity));
 
                         if buy_order.quantity == 0.0 {
+                            self.order_index.remove(&buy_order.id);
                             orders.remove(0);
                         }
-
                         if order.quantity == 0.0 {
                             break;
                         }
@@ -153,6 +122,30 @@ impl OrderBook {
                 "Trade executed: BUY ({:?}) <--> SELL ({:?}), Qty: {}, Price: {:?}",
                 buy, sell, qty, sell.price
             );
+        }
+    }
+
+    pub fn cancel_order(&mut self, order_id: String) -> Result<(), String> {
+        match self.order_index.remove_entry(&order_id) {
+            Some((_key, order)) => {
+                let orders = if order.order_type == OrderType::LimitBuy
+                    || order.order_type == OrderType::Buy
+                {
+                    self.buy_orders.get_mut(&order.price.unwrap())
+                } else {
+                    self.sell_orders.get_mut(&order.price.unwrap())
+                };
+
+                match orders {
+                    Some(orders) => {
+                        // delete order from the vector here
+                        orders.retain(|o| o.id != order_id);
+                        return Ok(());
+                    }
+                    None => return Err("Order already executed".to_string()),
+                }
+            }
+            None => Err("Invalid OrderId".to_owned()),
         }
     }
 }
