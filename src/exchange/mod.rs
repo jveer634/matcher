@@ -86,4 +86,19 @@ impl Matcher {
             None => Err("Invalid Order Id".to_string()),
         }
     }
+
+    pub fn update_order(
+        &mut self,
+        order_id: String,
+        order_type: OrderType,
+        price: Option<f64>,
+        quantity: f64,
+    ) -> Result<(), String> {
+        let pair_id = order_id.split('-').next().unwrap().to_string();
+
+        match self.pairs.get_mut(&pair_id) {
+            Some(book) => book.update_order(order_id, quantity, order_type, price),
+            None => Err("Invalid Order Id".to_string()),
+        }
+    }
 }

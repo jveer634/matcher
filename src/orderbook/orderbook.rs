@@ -33,30 +33,34 @@ impl OrderBook {
         let id = self.id_generator.generate_order_id();
         let order = Order::new(id.clone(), quantity, order_type, price);
 
-        self.order_index.insert(order.id.clone(), order.clone());
+        match order {
+            Ok(order) => {
+                self.order_index.insert(order.id.clone(), order.clone());
 
-        match order.order_type {
-            OrderType::LimitBuy => {
-                let p = match price {
-                    Some(pr) => Price::new(pr),
-                    None => return Err("LimitBuy needs a price".to_owned()),
-                };
-                let orders = self.buy_orders.entry(p.clone()).or_insert(VecDeque::new());
-                orders.push_back(order);
+                match order.order_type {
+                    OrderType::LimitBuy => {
+                        let orders = self
+                            .buy_orders
+                            .entry(order.price.unwrap().clone())
+                            .or_insert(VecDeque::new());
+                        orders.push_back(order);
+                    }
+                    OrderType::LimitSell => {
+                        let orders = self
+                            .sell_orders
+                            .entry(order.price.unwrap().clone())
+                            .or_insert(VecDeque::new());
+                        orders.push_back(order);
+                    }
+                    OrderType::Buy => self.match_order(order),
+                    OrderType::Sell => self.match_order(order),
+                }
+
+                return Ok(id);
             }
-            OrderType::LimitSell => {
-                let p = match price {
-                    Some(pr) => Price::new(pr),
-                    None => return Err("LimitSell needs a price".to_owned()),
-                };
-                let orders = self.sell_orders.entry(p.clone()).or_insert(VecDeque::new());
-                orders.push_back(order);
-            }
-            OrderType::Buy => self.match_order(order),
-            OrderType::Sell => self.match_order(order),
+
+            Err(err) => return Err(err),
         }
-
-        return Ok(id);
     }
 
     fn match_order(&mut self, mut order: Order) {
@@ -141,6 +145,52 @@ impl OrderBook {
                         // delete order from the vector here
                         orders.retain(|o| o.id != order_id);
                         return Ok(());
+                    }
+                    None => return Err("Order already executed".to_string()),
+                }
+            }
+            None => Err("Invalid OrderId".to_owned()),
+        }
+    }
+
+    pub fn update_order(
+        &mut self,
+        order_id: String,
+        quantity: f64,
+        order_type: OrderType,
+        price: Option<f64>,
+    ) -> Result<(), String> {
+        match self.order_index.remove_entry(&order_id) {
+            Some((_, order)) => {
+                let orders = if order.order_type == OrderType::LimitBuy
+                    || order.order_type == OrderType::Buy
+                {
+                    self.buy_orders.get_mut(&order.price.unwrap())
+                } else {
+                    self.sell_orders.get_mut(&order.price.unwrap())
+                };
+
+                match orders {
+                    Some(orders) => {
+                        if let Some(pos) = orders.iter().position(|order| order.id == order_id) {
+                            let mut order = orders.remove(pos).unwrap(); // Remove and get the order
+                            return match order.update(order_type, price, quantity) {
+                                Ok(_) => {
+                                    if matches!(
+                                        order_type,
+                                        OrderType::LimitBuy | OrderType::LimitSell
+                                    ) && price.is_none()
+                                    {
+                                        orders.push_back(order.clone());
+                                    }
+                                    self.match_order(order);
+
+                                    Ok(())
+                                }
+                                Err(err) => Err(err),
+                            };
+                        }
+                        Ok(())
                     }
                     None => return Err("Order already executed".to_string()),
                 }

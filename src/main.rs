@@ -19,6 +19,10 @@ fn main() {
 
     dbg!("Before Deletion", &matcher, &order2);
 
+    matcher
+        .update_order(order1, OrderType::Buy, None, 11.9)
+        .unwrap();
+
     matcher.cancel_order(order2).unwrap();
 
     dbg!("After deletion", &matcher);
