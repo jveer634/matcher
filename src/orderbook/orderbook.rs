@@ -12,15 +12,17 @@ pub struct OrderBook {
     buy_orders: BTreeMap<Price, VecDeque<Order>>,
     sell_orders: BTreeMap<Price, VecDeque<Order>>,
     order_index: HashMap<String, Order>,
+    last_traded_price: Price,
 }
 
 impl OrderBook {
-    pub fn new(pair_id: String) -> OrderBook {
+    pub fn new(pair_id: String, listing_price: f64) -> OrderBook {
         OrderBook {
             id_generator: IdGenerator::new(pair_id),
             buy_orders: BTreeMap::new(),
             sell_orders: BTreeMap::new(),
             order_index: HashMap::new(),
+            last_traded_price: Price::new(listing_price),
         }
     }
 
@@ -36,7 +38,6 @@ impl OrderBook {
         match order {
             Ok(order) => {
                 self.order_index.insert(order.id.clone(), order.clone());
-
                 match order.order_type {
                     OrderType::LimitBuy => {
                         let orders = self
@@ -122,6 +123,7 @@ impl OrderBook {
             println!("Handle Low liquity");
         }
         for (sell, buy, qty) in trades {
+            self.last_traded_price = sell.price.unwrap();
             println!(
                 "Trade executed: BUY ({:?}) <--> SELL ({:?}), Qty: {}, Price: {:?}",
                 buy, sell, qty, sell.price

@@ -45,14 +45,14 @@ impl Matcher {
         }
     }
 
-    pub fn add_pair(&mut self, base: String, quote: String) -> String {
+    pub fn add_pair(&mut self, base: String, quote: String, listing_price: f64) -> String {
         let pair = TradingPair::new(base, quote);
         match self.pairs.get(&pair.id) {
             Some(order_book) => {
                 println!("OrderBook for pair {pair} already exists: {:?}", order_book);
             }
             None => {
-                let order_book = OrderBook::new(pair.id.clone());
+                let order_book = OrderBook::new(pair.id.clone(), listing_price);
                 self.pairs.insert(pair.id.clone(), order_book);
                 println!("Added new pair: {:?}", pair);
             }
