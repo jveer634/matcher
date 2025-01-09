@@ -28,14 +28,17 @@ impl Order {
     ) -> Result<Order, String> {
         let price = match price {
             Some(p) => Some(Price::new(p)),
-            None => None,
+            None => {
+                if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell)
+                    && price.is_none()
+                {
+                    return Err("Limit Order needs a price".to_owned());
+                };
+
+                None
+            }
         };
-
         let dt = Utc::now();
-
-        if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell) && price.is_none() {
-            return Err("Limit Order needs a price".to_owned());
-        }
 
         Ok(Order {
             id,
@@ -68,5 +71,52 @@ impl Order {
         self.timestamp = dt.timestamp();
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn pass_creating_orders() {
+        let _buy_order =
+            Order::new("buy_order".to_owned(), 12.0, super::OrderType::Buy, None).unwrap();
+        let _sell_order =
+            Order::new("sell_order".to_owned(), 12.0, super::OrderType::Sell, None).unwrap();
+
+        let _limit_buy_order = Order::new(
+            "limit_buy_order".to_owned(),
+            12.0,
+            super::OrderType::LimitBuy,
+            Some(12.3),
+        )
+        .unwrap();
+        let _sell_order = Order::new(
+            "buy_order".to_owned(),
+            12.0,
+            super::OrderType::LimitBuy,
+            Some(12.54),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn fail_creating_orders() {
+        let _limit_buy_order = Order::new(
+            "limit_buy_order".to_owned(),
+            12.0,
+            super::OrderType::LimitBuy,
+            None,
+        )
+        .unwrap();
+        let _sell_order = Order::new(
+            "buy_order".to_owned(),
+            12.0,
+            super::OrderType::LimitBuy,
+            None,
+        )
+        .unwrap();
     }
 }

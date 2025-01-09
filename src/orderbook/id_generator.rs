@@ -29,3 +29,26 @@ impl IdGenerator {
         format!("{}-{:x}-{:06x}", self.pair_id, timestamp, count)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn pass_generating_id() {
+        let pair_id = String::from("ETHINC");
+        let generator = IdGenerator::new(pair_id.clone());
+
+        let binding = generator.generate_order_id();
+        let vec: Vec<&str> = binding.split('-').collect();
+
+        assert_eq!(*vec[0].to_string(), pair_id);
+        assert_eq!(vec[2], "000000");
+
+        let binding = generator.generate_order_id();
+        let vec: Vec<&str> = binding.split('-').collect();
+
+        assert_eq!(*vec[0].to_string(), pair_id);
+        assert_eq!(vec[2], "000001");
+    }
+}
