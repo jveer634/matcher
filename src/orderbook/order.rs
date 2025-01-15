@@ -1,6 +1,5 @@
 use chrono::Utc;
-
-use super::price::Price;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum OrderType {
@@ -15,7 +14,7 @@ pub struct Order {
     pub id: String,
     pub quantity: f64,
     pub order_type: OrderType,
-    pub price: Option<Price>,
+    pub price: Option<Decimal>,
     pub timestamp: i64,
 }
 
@@ -27,7 +26,7 @@ impl Order {
         price: Option<f64>,
     ) -> Result<Order, String> {
         let price = match price {
-            Some(p) => Some(Price::new(p)),
+            Some(p) => Some(Decimal::from_f64(p).unwrap()),
             None => {
                 if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell)
                     && price.is_none()
@@ -63,7 +62,7 @@ impl Order {
         self.price = if matches!(order_type, OrderType::Buy | OrderType::Sell) {
             None
         } else {
-            Some(Price::new(price.unwrap()))
+            Decimal::from_f64(price.unwrap())
         };
 
         self.quantity = quantity;

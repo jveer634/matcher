@@ -2,19 +2,20 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use super::{
     id_generator::IdGenerator,
-    order::{self, Order, OrderType},
-    price::Price,
+    order::{Order, OrderType},
 };
+
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 
 #[derive(Debug)]
 pub struct OrderBook {
     id_generator: IdGenerator,
-    buy_orders: BTreeMap<Price, VecDeque<Order>>,
-    sell_orders: BTreeMap<Price, VecDeque<Order>>,
+    buy_orders: BTreeMap<Decimal, VecDeque<Order>>,
+    sell_orders: BTreeMap<Decimal, VecDeque<Order>>,
     pub sell_volume: f64,
     pub buy_volume: f64,
     order_index: HashMap<String, Order>,
-    last_traded_price: Price,
+    last_traded_price: Decimal,
 }
 
 impl OrderBook {
@@ -24,7 +25,7 @@ impl OrderBook {
             buy_orders: BTreeMap::new(),
             sell_orders: BTreeMap::new(),
             order_index: HashMap::new(),
-            last_traded_price: Price::new(listing_price),
+            last_traded_price: Decimal::from_f64(listing_price).unwrap(),
             sell_volume: 0.0,
             buy_volume: 0.0,
         }
