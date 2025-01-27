@@ -117,9 +117,9 @@ impl Matcher {
     pub fn update_order(
         &mut self,
         order_id: String,
-        order_type: OrderType,
+        order_type: Option<OrderType>,
         price: Option<f64>,
-        quantity: f64,
+        quantity: Option<f64>,
     ) -> Result<(), String> {
         let pair_id = order_id.split('-').next().unwrap().to_string();
 
