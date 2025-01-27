@@ -71,6 +71,19 @@ impl Order {
 
         Ok(())
     }
+
+    pub fn fill_order(&mut self, amount: f64) {
+        self.quantity -= amount;
+        if self.quantity == 0.0 {
+            // self.status
+            // todo: update status
+        }
+    }
+
+
+    pub fn is_filled(&self) -> bool {
+        self.quantity == 0.0
+    }
 }
 
 #[cfg(test)]

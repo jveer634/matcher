@@ -8,6 +8,13 @@ use super::{
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 
 #[derive(Debug)]
+pub struct Trade {
+    order: Order,
+    book_order: Order,
+    quantity: f64,
+}
+
+#[derive(Debug)]
 pub struct OrderBook {
     id_generator: IdGenerator,
     buy_orders: BTreeMap<Decimal, VecDeque<Order>>,
@@ -38,129 +45,129 @@ impl OrderBook {
         quantity: f64,
     ) -> Result<String, String> {
         let id = self.id_generator.generate_order_id();
-        let order = Order::new(id.clone(), quantity, order_type, price);
+        let order = Order::new(id.clone(), quantity, order_type, price)?;
 
-        match order {
-            Ok(order) => {
-                self.order_index.insert(order.id.clone(), order.clone());
-                match order.order_type {
-                    OrderType::LimitBuy => {
-                        let orders = self
-                            .buy_orders
-                            .entry(order.price.unwrap().clone())
-                            .or_insert(VecDeque::new());
-                        self.buy_volume += order.quantity;
-                        orders.push_back(order.clone());
-                        self.match_order(order);
+        self.order_index.insert(order.id.clone(), order.clone());
 
-                        dbg!("Order reived limit buy");
-                    }
-                    OrderType::LimitSell => {
-                        let orders = self
-                            .sell_orders
-                            .entry(order.price.unwrap().clone())
-                            .or_insert(VecDeque::new());
-                        self.sell_volume += order.quantity;
+        if matches!(order.order_type, OrderType::Buy | OrderType::Sell) {
+            self.match_market_order(order);
+        } else {
+            self.match_limit_order(order);
+        }
+        return Ok(id);
+    }
 
-                        dbg!(self.sell_volume);
-                        orders.push_back(order.clone());
-                        self.match_order(order);
-                        dbg!("Order added limit sell");
-                    }
-                    OrderType::Buy => self.match_order(order),
-                    OrderType::Sell => self.match_order(order),
+    fn match_market_order(&mut self, mut order: Order) {
+        let mut trades: Vec<Trade> = Vec::new();
+
+        let (orders, volume) = if order.order_type == OrderType::Buy {
+            (&mut self.sell_orders, &mut self.sell_volume)
+        } else {
+            (&mut self.buy_orders, &mut self.buy_volume)
+        };
+
+        for (_, orders) in orders.iter_mut() {
+            while let Some(book_order) = orders.front_mut() {
+                let traded_quantity = order.quantity.min(book_order.quantity);
+
+                book_order.fill_order(traded_quantity);
+                order.fill_order(traded_quantity);
+
+                *volume -= traded_quantity;
+
+                trades.push(Trade {
+                    book_order: book_order.clone(),
+                    order: order.clone(),
+                    quantity: traded_quantity,
+                });
+
+                if book_order.quantity == 0.0 {
+                    self.order_index.remove(&book_order.id);
+                    orders.remove(0);
                 }
 
-                return Ok(id);
+                if order.quantity == 0.0 {
+                    break;
+                }
             }
 
-            Err(err) => return Err(err),
+            println!("Trades happened: {:?} ", trades);
         }
     }
 
-    fn match_order(&mut self, mut order: Order) {
-        let mut trades = Vec::new();
-        match order.order_type {
-            OrderType::Buy | OrderType::LimitBuy => {
-                let sell_orders = &mut self.sell_orders;
-                for (price, orders) in sell_orders.iter_mut() {
-                    if order.order_type == OrderType::LimitBuy && order.price.unwrap() > *price {
-                        continue;
-                    }
+    fn match_limit_order(&mut self, mut order: Order) {
+        let (orders, volume) = if order.order_type == OrderType::LimitBuy {
+            (
+                self.sell_orders.get_mut(&order.price.unwrap()),
+                &mut self.sell_volume,
+            )
+        } else {
+            (
+                self.buy_orders.get_mut(&order.price.unwrap()),
+                &mut self.buy_volume,
+            )
+        };
 
-                    while let Some(sell_order) = orders.front_mut() {
-                        let traded_quantity = order.quantity.min(sell_order.quantity);
+        println!("Book Orders {orders:#?}, order: {order:#?}");
 
-                        sell_order.quantity -= traded_quantity;
-                        order.quantity -= traded_quantity;
-
-                        self.buy_volume -= traded_quantity;
-                        self.sell_volume -= traded_quantity;
-
-                        trades.push((sell_order.clone(), order.clone(), traded_quantity));
-
-                        if sell_order.quantity == 0.0 {
-                            self.order_index.remove(&sell_order.id);
-                            orders.remove(0);
-                        }
-
-                        if order.quantity == 0.0 {
-                            break;
-                        }
-                    }
+        match orders {
+            None => {
+                if order.order_type == OrderType::LimitBuy {
+                    self.buy_volume += order.quantity;
+                    self.buy_orders
+                        .entry(order.price.unwrap())
+                        .or_insert(VecDeque::new())
+                        .push_back(order);
+                } else {
+                    self.sell_volume += order.quantity;
+                    self.sell_orders
+                        .entry(order.price.unwrap())
+                        .or_insert(VecDeque::new())
+                        .push_back(order);
                 }
-                // if order.quantity > 0.0 {
-                //     let orders = sell_orders
-                //         .entry(self.last_traded_price.clone())
-                //         .or_insert(VecDeque::new());
-                //     self.sell_volume += order.quantity;
-                //     orders.push_back(order);
-                // }
             }
-            OrderType::Sell | OrderType::LimitSell => {
-                let buy_orders = &mut self.buy_orders;
-                for (price, orders) in buy_orders.iter_mut() {
-                    if order.order_type == OrderType::LimitSell && order.price.unwrap() < *price {
-                        continue;
+            Some(orders) => {
+                let mut trades: Vec<Trade> = Vec::new();
+                while let Some(book_order) = orders.front_mut() {
+                    let traded_quantity = order.quantity.min(book_order.quantity);
+
+                    book_order.fill_order(traded_quantity);
+                    order.fill_order(traded_quantity);
+
+                    *volume -= traded_quantity;
+
+                    trades.push(Trade {
+                        book_order: book_order.clone(),
+                        order: order.clone(),
+                        quantity: traded_quantity,
+                    });
+
+                    if book_order.quantity == 0.0 {
+                        self.order_index.remove(&book_order.id);
+                        orders.remove(0);
                     }
 
-                    while let Some(buy_order) = orders.front_mut() {
-                        let traded_quantity = order.quantity.min(buy_order.quantity);
-
-                        buy_order.quantity -= traded_quantity;
-                        order.quantity -= traded_quantity;
-
-                        self.sell_volume -= traded_quantity;
-                        self.buy_volume -= traded_quantity;
-
-                        trades.push((buy_order.clone(), order.clone(), traded_quantity));
-
-                        if buy_order.quantity == 0.0 {
-                            self.order_index.remove(&buy_order.id);
-                            orders.remove(0);
-                        }
-                        if order.quantity == 0.0 {
-                            break;
-                        }
+                    if order.quantity == 0.0 {
+                        break;
                     }
                 }
 
-                // if order.quantity > 0.0 {
-                //     let orders = buy_orders
-                //         .entry(self.last_traded_price.clone())
-                //         .or_insert(VecDeque::new());
-                //     self.sell_volume += order.quantity;
-                //     orders.push_back(order);
-                // }
+                if !order.is_filled() {
+                    if order.order_type == OrderType::LimitBuy {
+                        self.buy_volume += order.quantity;
+                        self.buy_orders
+                            .entry(order.price.unwrap())
+                            .or_insert(VecDeque::new())
+                            .push_back(order);
+                    } else {
+                        self.sell_volume += order.quantity;
+                        self.sell_orders
+                            .entry(order.price.unwrap())
+                            .or_insert(VecDeque::new())
+                            .push_back(order);
+                    }
+                }
             }
-        }
-
-        for (sell, buy, qty) in trades {
-            self.last_traded_price = sell.price.unwrap();
-            println!(
-                "Trade executed: BUY ({:?}) <--> SELL ({:?}), Qty: {}, Price: {:?}",
-                buy, sell, qty, sell.price
-            );
         }
     }
 
@@ -228,11 +235,13 @@ impl OrderBook {
 
                                     if order_type == OrderType::LimitBuy {
                                         self.buy_volume += order.quantity;
-                                    }
-                                    if order_type == OrderType::LimitSell {
+                                        self.match_limit_order(order);
+                                    } else if order_type == OrderType::LimitSell {
                                         self.sell_volume += order.quantity;
+                                        self.match_limit_order(order);
+                                    } else {
+                                        self.match_market_order(order);
                                     }
-                                    self.match_order(order);
                                     Ok(())
                                 }
                                 Err(err) => Err(err),
@@ -348,11 +357,13 @@ mod tests {
 
         let mut book = OrderBook::new(pair_id, listing_price);
 
-        let buy = book
-            .add_order(OrderType::LimitBuy, Some(listing_price), quantity)
+        book.add_order(OrderType::LimitBuy, Some(listing_price), quantity)
             .expect("can't add limit buy with price");
 
-        let sell = book.add_order(OrderType::LimitSell, Some(listing_price), quantity);
+        book.add_order(OrderType::LimitSell, Some(listing_price), quantity)
+            .expect("Can't add limit sell order");
+
+        dbg!(&book);
 
         assert_eq!(book.buy_volume, 0.0);
         assert_eq!(book.sell_volume, 0.0);
