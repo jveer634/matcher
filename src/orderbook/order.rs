@@ -5,8 +5,8 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 pub enum OrderType {
     Buy,
     Sell,
-    LimitSell,
     LimitBuy,
+    LimitSell,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,10 +17,12 @@ pub enum OrderStatus {
     PartiallyExecuted,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Order {
     id: String,
+    symbol: String,
     quantity: f64,
+    initial_quantity: f64,
     order_type: OrderType,
     price: Option<Decimal>,
     status: OrderStatus,
@@ -30,30 +32,40 @@ pub struct Order {
 impl Order {
     pub fn new(
         id: String,
+        symbol: String,
         quantity: f64,
         order_type: OrderType,
         price: Option<f64>,
     ) -> Result<Order, String> {
-        let price = match price {
-            Some(p) => Some(Decimal::from_f64(p).unwrap()),
-            None => {
-                if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell)
-                    && price.is_none()
-                {
-                    return Err("Limit Order needs a price".to_owned());
-                };
+        if quantity <= 0.0 {
+            return Err("Order quantity must be positive".to_string());
+        }
 
+        let decimal_price = match price {
+            Some(p) => {
+                if p <= 0.0 {
+                    return Err("Order price must be positive".to_string());
+                }
+                Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?)
+            }
+            None => {
+                if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell) {
+                    return Err("Limit order requires a price".to_owned());
+                }
                 None
             }
         };
+
         let dt = Utc::now();
 
         Ok(Order {
             id,
+            symbol,
             quantity,
+            initial_quantity: quantity,
             order_type,
-            price,
-            timestamp: dt.timestamp(),
+            price: decimal_price,
+            timestamp: dt.timestamp_millis(),
             status: OrderStatus::Open,
         })
     }
@@ -64,46 +76,56 @@ impl Order {
         price: Option<f64>,
         quantity: Option<f64>,
     ) -> Result<Self, String> {
-        if matches!(self.status, OrderStatus::Cancelled) {
-            return Err("Order already cancelled".to_owned());
+        if matches!(self.status, OrderStatus::Cancelled | OrderStatus::Executed) {
+            return Err("Cannot update a cancelled or executed order".to_owned());
         }
 
-        if order_type.is_some() {
-            //  when price of a limit order is updated
-            let order_type = order_type.unwrap();
-            if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell) && price.is_none() {
-                return Err("Limit Order needs a price".to_owned());
-            }
-
-            self.price = if matches!(order_type, OrderType::Buy | OrderType::Sell) {
-                None
+        if let Some(new_type) = order_type {
+            if matches!(new_type, OrderType::LimitBuy | OrderType::LimitSell) {
+                let p = price
+                    .or_else(|| self.price.map(|dp| dp.to_string().parse::<f64>().unwrap_or(0.0)))
+                    .ok_or("Limit order requires a price")?;
+                if p <= 0.0 {
+                    return Err("Price must be positive".to_string());
+                }
+                self.price = Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?);
             } else {
-                Decimal::from_f64(price.unwrap())
-            };
-            self.order_type = order_type;
+                self.price = None;
+            }
+            self.order_type = new_type;
+        } else if let Some(p) = price {
+            if matches!(self.order_type, OrderType::LimitBuy | OrderType::LimitSell) {
+                if p <= 0.0 {
+                    return Err("Price must be positive".to_string());
+                }
+                self.price = Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?);
+            }
         }
 
-        if quantity.is_some() {
-            self.quantity = quantity.unwrap();
+        if let Some(qty) = quantity {
+            if qty <= 0.0 {
+                return Err("Updated quantity must be positive".to_string());
+            }
+            self.quantity = qty;
         }
-        let dt = Utc::now();
-        self.timestamp = dt.timestamp();
 
+        self.timestamp = Utc::now().timestamp_millis();
         Ok(self.clone())
     }
 
     pub fn fill_order(&mut self, amount: f64) {
-        self.quantity -= amount;
-        if self.quantity == 0.0 {
-            self.status = OrderStatus::Executed
+        self.quantity = (self.quantity - amount).max(0.0);
+        if self.quantity <= 1e-9 {
+            self.quantity = 0.0;
+            self.status = OrderStatus::Executed;
         } else {
-            self.status = OrderStatus::PartiallyExecuted
+            self.status = OrderStatus::PartiallyExecuted;
         }
     }
 
     pub fn cancel(&mut self) -> Result<(), String> {
-        if self.status != OrderStatus::Open {
-            return Err("Order can't be cancalled".to_string());
+        if matches!(self.status, OrderStatus::Cancelled | OrderStatus::Executed) {
+            return Err("Order cannot be cancelled".to_string());
         }
 
         self.status = OrderStatus::Cancelled;
@@ -111,15 +133,27 @@ impl Order {
     }
 
     pub fn is_filled(&self) -> bool {
-        self.quantity == 0.0
+        self.quantity == 0.0 || self.status == OrderStatus::Executed
     }
 
     pub fn quantity(&self) -> f64 {
         self.quantity
     }
 
+    pub fn initial_quantity(&self) -> f64 {
+        self.initial_quantity
+    }
+
+    pub fn filled_quantity(&self) -> f64 {
+        self.initial_quantity - self.quantity
+    }
+
     pub fn id(&self) -> &String {
         &self.id
+    }
+
+    pub fn symbol(&self) -> &String {
+        &self.symbol
     }
 
     pub fn order_type(&self) -> &OrderType {
@@ -129,6 +163,14 @@ impl Order {
     pub fn price(&self) -> &Option<Decimal> {
         &self.price
     }
+
+    pub fn status(&self) -> &OrderStatus {
+        &self.status
+    }
+
+    pub fn timestamp(&self) -> i64 {
+        self.timestamp
+    }
 }
 
 #[cfg(test)]
@@ -136,44 +178,52 @@ mod tests {
     use super::*;
 
     #[test]
-    pub fn pass_creating_orders() {
-        let _buy_order =
-            Order::new("buy_order".to_owned(), 12.0, super::OrderType::Buy, None).unwrap();
-        let _sell_order =
-            Order::new("sell_order".to_owned(), 12.0, super::OrderType::Sell, None).unwrap();
+    pub fn test_order_creation() {
+        let buy = Order::new(
+            "o1".into(),
+            "ETH-USDT".into(),
+            10.0,
+            OrderType::Buy,
+            None,
+        );
+        assert!(buy.is_ok());
 
-        let _limit_buy_order = Order::new(
-            "limit_buy_order".to_owned(),
-            12.0,
-            super::OrderType::LimitBuy,
-            Some(12.3),
-        )
-        .unwrap();
-        let _sell_order = Order::new(
-            "buy_order".to_owned(),
-            12.0,
-            super::OrderType::LimitBuy,
-            Some(12.54),
-        )
-        .unwrap();
+        let limit_buy = Order::new(
+            "o2".into(),
+            "ETH-USDT".into(),
+            10.0,
+            OrderType::LimitBuy,
+            Some(2500.0),
+        );
+        assert!(limit_buy.is_ok());
+
+        let limit_no_price = Order::new(
+            "o3".into(),
+            "ETH-USDT".into(),
+            10.0,
+            OrderType::LimitBuy,
+            None,
+        );
+        assert!(limit_no_price.is_err());
     }
 
     #[test]
-    #[should_panic]
-    pub fn fail_creating_orders() {
-        let _limit_buy_order = Order::new(
-            "limit_buy_order".to_owned(),
-            12.0,
-            super::OrderType::LimitBuy,
-            None,
+    pub fn test_order_fill_and_status() {
+        let mut order = Order::new(
+            "o1".into(),
+            "BTC-USDT".into(),
+            5.0,
+            OrderType::LimitBuy,
+            Some(60000.0),
         )
         .unwrap();
-        let _sell_order = Order::new(
-            "buy_order".to_owned(),
-            12.0,
-            super::OrderType::LimitBuy,
-            None,
-        )
-        .unwrap();
+
+        order.fill_order(2.0);
+        assert_eq!(*order.status(), OrderStatus::PartiallyExecuted);
+        assert_eq!(order.quantity(), 3.0);
+
+        order.fill_order(3.0);
+        assert_eq!(*order.status(), OrderStatus::Executed);
+        assert!(order.is_filled());
     }
 }
