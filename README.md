@@ -76,24 +76,25 @@ cargo test
 
 ### 1. Using a Standalone Single-Symbol Matcher
 ```rust
-use matcher::{Matcher, OrderType};
+use matcher::{Matcher, OrderType, UDecimal};
+use rust_decimal_macros::dec;
 
 // Initialize an isolated matcher for a single symbol
-let mut btc_matcher = Matcher::new("BTC-USDT".to_string(), Some(65000.0));
+let mut btc_matcher = Matcher::new("BTC-USDT".to_string(), Some(UDecimal::new(dec!(65000.0)).unwrap()));
 
 // Submit a Limit Sell order: 2.0 BTC @ $65,100
 let sell_res = btc_matcher
-    .submit_order(OrderType::LimitSell, Some(65100.0), 2.0)
+    .submit_order(OrderType::LimitSell, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(2.0)).unwrap())
     .expect("Submit limit sell");
 
 // Submit a matching Limit Buy order: 1.0 BTC @ $65,100
 let buy_res = btc_matcher
-    .submit_order(OrderType::LimitBuy, Some(65100.0), 1.0)
+    .submit_order(OrderType::LimitBuy, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap())
     .expect("Submit limit buy");
 
 // Inspect generated trades
 for trade in &buy_res.trades {
-    println!("Trade executed: {} @ {}", trade.quantity, trade.price);
+    println!("Trade executed: {} @ {} (value: {})", trade.quantity, trade.price, trade.notional());
 }
 
 // Get top 5 levels of order book depth
@@ -102,13 +103,14 @@ let (bids, asks) = btc_matcher.get_depth(5);
 
 ### 2. Using the Sharded Engine for Multi-Symbol Concurrency
 ```rust
-use matcher::{OrderType, ShardedEngine};
+use matcher::{OrderType, ShardedEngine, UDecimal};
+use rust_decimal_macros::dec;
 use std::sync::Arc;
 use std::thread;
 
 let mut engine = ShardedEngine::new();
-engine.register_symbol("BTC-USDT", Some(65000.0)).unwrap();
-engine.register_symbol("ETH-USDT", Some(3500.0)).unwrap();
+engine.register_symbol("BTC-USDT", Some(UDecimal::new(dec!(65000.0)).unwrap())).unwrap();
+engine.register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3500.0)).unwrap())).unwrap();
 
 let engine = Arc::new(engine);
 
@@ -117,13 +119,13 @@ let btc_engine = Arc::clone(&engine);
 let eth_engine = Arc::clone(&engine);
 
 let btc_handle = thread::spawn(move || {
-    btc_engine.submit_order("BTC-USDT", OrderType::LimitSell, Some(65000.0), 1.0).unwrap();
-    btc_engine.submit_order("BTC-USDT", OrderType::Buy, None, 1.0).unwrap();
+    btc_engine.submit_order("BTC-USDT", OrderType::LimitSell, Some(UDecimal::new(dec!(65000.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap()).unwrap();
+    btc_engine.submit_order("BTC-USDT", OrderType::Buy, None, UDecimal::new(dec!(1.0)).unwrap()).unwrap();
 });
 
 let eth_handle = thread::spawn(move || {
-    eth_engine.submit_order("ETH-USDT", OrderType::LimitSell, Some(3500.0), 10.0).unwrap();
-    eth_engine.submit_order("ETH-USDT", OrderType::LimitBuy, Some(3500.0), 5.0).unwrap();
+    eth_engine.submit_order("ETH-USDT", OrderType::LimitSell, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(10.0)).unwrap()).unwrap();
+    eth_engine.submit_order("ETH-USDT", OrderType::LimitBuy, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(5.0)).unwrap()).unwrap();
 });
 
 btc_handle.join().unwrap();

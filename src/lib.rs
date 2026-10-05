@@ -8,4 +8,7 @@ pub use orderbook::{
     order::{Order, OrderStatus, OrderType},
     orderbook::{BookLevel, OrderBook},
     trade::Trade,
+    udecimal::UDecimal,
 };
+
+pub type UnsignedDecimal = UDecimal;

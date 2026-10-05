@@ -1,5 +1,6 @@
 use chrono::Utc;
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+
+use super::udecimal::UDecimal;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum OrderType {
@@ -21,10 +22,10 @@ pub enum OrderStatus {
 pub struct Order {
     id: String,
     symbol: String,
-    quantity: f64,
-    initial_quantity: f64,
+    quantity: UDecimal,
+    initial_quantity: UDecimal,
     order_type: OrderType,
-    price: Option<Decimal>,
+    price: Option<UDecimal>,
     status: OrderStatus,
     timestamp: i64,
 }
@@ -33,27 +34,23 @@ impl Order {
     pub fn new(
         id: String,
         symbol: String,
-        quantity: f64,
+        quantity: UDecimal,
         order_type: OrderType,
-        price: Option<f64>,
+        price: Option<UDecimal>,
     ) -> Result<Order, String> {
-        if quantity <= 0.0 {
+        if quantity.is_zero() {
             return Err("Order quantity must be positive".to_string());
         }
 
-        let decimal_price = match price {
-            Some(p) => {
-                if p <= 0.0 {
+        let decimal_price = match order_type {
+            OrderType::LimitBuy | OrderType::LimitSell => {
+                let p = price.ok_or_else(|| "Limit order requires a price".to_string())?;
+                if p.is_zero() {
                     return Err("Order price must be positive".to_string());
                 }
-                Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?)
+                Some(p)
             }
-            None => {
-                if matches!(order_type, OrderType::LimitBuy | OrderType::LimitSell) {
-                    return Err("Limit order requires a price".to_owned());
-                }
-                None
-            }
+            OrderType::Buy | OrderType::Sell => None,
         };
 
         let dt = Utc::now();
@@ -73,52 +70,51 @@ impl Order {
     pub fn update(
         &mut self,
         order_type: Option<OrderType>,
-        price: Option<f64>,
-        quantity: Option<f64>,
+        price: Option<UDecimal>,
+        quantity: Option<UDecimal>,
     ) -> Result<Self, String> {
         if matches!(self.status, OrderStatus::Cancelled | OrderStatus::Executed) {
             return Err("Cannot update a cancelled or executed order".to_owned());
         }
 
-        if let Some(new_type) = order_type {
-            if matches!(new_type, OrderType::LimitBuy | OrderType::LimitSell) {
-                let p = price
-                    .or_else(|| self.price.map(|dp| dp.to_string().parse::<f64>().unwrap_or(0.0)))
-                    .ok_or("Limit order requires a price")?;
-                if p <= 0.0 {
+        let new_type = order_type.unwrap_or(self.order_type);
+        let new_price = match new_type {
+            OrderType::LimitBuy | OrderType::LimitSell => {
+                let p = price.or(self.price).ok_or("Limit order requires a price")?;
+                if p.is_zero() {
                     return Err("Price must be positive".to_string());
                 }
-                self.price = Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?);
-            } else {
-                self.price = None;
+                Some(p)
             }
-            self.order_type = new_type;
-        } else if let Some(p) = price {
-            if matches!(self.order_type, OrderType::LimitBuy | OrderType::LimitSell) {
-                if p <= 0.0 {
-                    return Err("Price must be positive".to_string());
-                }
-                self.price = Some(Decimal::from_f64(p).ok_or("Invalid price decimal")?);
-            }
-        }
+            OrderType::Buy | OrderType::Sell => None,
+        };
 
         if let Some(qty) = quantity {
-            if qty <= 0.0 {
+            if qty.is_zero() {
                 return Err("Updated quantity must be positive".to_string());
+            }
+            if self.status == OrderStatus::Open {
+                self.initial_quantity = qty;
             }
             self.quantity = qty;
         }
 
+        self.order_type = new_type;
+        self.price = new_price;
         self.timestamp = Utc::now().timestamp_millis();
         Ok(self.clone())
     }
 
-    pub fn fill_order(&mut self, amount: f64) {
-        self.quantity = (self.quantity - amount).max(0.0);
-        if self.quantity <= 1e-9 {
-            self.quantity = 0.0;
+    pub fn fill_order(&mut self, amount: UDecimal) {
+        if amount.is_zero() {
+            return;
+        }
+
+        if amount >= self.quantity {
+            self.quantity = UDecimal::ZERO;
             self.status = OrderStatus::Executed;
         } else {
+            self.quantity -= amount;
             self.status = OrderStatus::PartiallyExecuted;
         }
     }
@@ -133,18 +129,18 @@ impl Order {
     }
 
     pub fn is_filled(&self) -> bool {
-        self.quantity == 0.0 || self.status == OrderStatus::Executed
+        self.quantity.is_zero() || self.status == OrderStatus::Executed
     }
 
-    pub fn quantity(&self) -> f64 {
+    pub fn quantity(&self) -> UDecimal {
         self.quantity
     }
 
-    pub fn initial_quantity(&self) -> f64 {
+    pub fn initial_quantity(&self) -> UDecimal {
         self.initial_quantity
     }
 
-    pub fn filled_quantity(&self) -> f64 {
+    pub fn filled_quantity(&self) -> UDecimal {
         self.initial_quantity - self.quantity
     }
 
@@ -160,7 +156,7 @@ impl Order {
         &self.order_type
     }
 
-    pub fn price(&self) -> &Option<Decimal> {
+    pub fn price(&self) -> &Option<UDecimal> {
         &self.price
     }
 
@@ -176,35 +172,65 @@ impl Order {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     pub fn test_order_creation() {
         let buy = Order::new(
             "o1".into(),
             "ETH-USDT".into(),
-            10.0,
+            UDecimal::new(dec!(10.0)).unwrap(),
             OrderType::Buy,
             None,
         );
         assert!(buy.is_ok());
+        assert_eq!(buy.unwrap().price(), &None);
+
+        let buy_with_extraneous_price = Order::new(
+            "o1_m".into(),
+            "ETH-USDT".into(),
+            UDecimal::new(dec!(10.0)).unwrap(),
+            OrderType::Buy,
+            Some(UDecimal::new(dec!(3000.0)).unwrap()),
+        );
+        assert!(buy_with_extraneous_price.is_ok());
+        assert_eq!(buy_with_extraneous_price.unwrap().price(), &None);
 
         let limit_buy = Order::new(
             "o2".into(),
             "ETH-USDT".into(),
-            10.0,
+            UDecimal::new(dec!(10.0)).unwrap(),
             OrderType::LimitBuy,
-            Some(2500.0),
+            Some(UDecimal::new(dec!(2500.0)).unwrap()),
         );
         assert!(limit_buy.is_ok());
 
         let limit_no_price = Order::new(
             "o3".into(),
             "ETH-USDT".into(),
-            10.0,
+            UDecimal::new(dec!(10.0)).unwrap(),
             OrderType::LimitBuy,
             None,
         );
         assert!(limit_no_price.is_err());
+
+        let zero_price = Order::new(
+            "o4".into(),
+            "ETH-USDT".into(),
+            UDecimal::new(dec!(10.0)).unwrap(),
+            OrderType::LimitBuy,
+            Some(UDecimal::ZERO),
+        );
+        assert!(zero_price.is_err());
+
+        let zero_qty = Order::new(
+            "o5".into(),
+            "ETH-USDT".into(),
+            UDecimal::ZERO,
+            OrderType::Buy,
+            None,
+        );
+        assert!(zero_qty.is_err());
     }
 
     #[test]
@@ -212,18 +238,47 @@ mod tests {
         let mut order = Order::new(
             "o1".into(),
             "BTC-USDT".into(),
-            5.0,
+            UDecimal::new(dec!(5.0)).unwrap(),
             OrderType::LimitBuy,
-            Some(60000.0),
+            Some(UDecimal::new(dec!(60000.0)).unwrap()),
         )
         .unwrap();
 
-        order.fill_order(2.0);
+        order.fill_order(UDecimal::new(dec!(2.0)).unwrap());
         assert_eq!(*order.status(), OrderStatus::PartiallyExecuted);
-        assert_eq!(order.quantity(), 3.0);
+        assert_eq!(order.quantity(), UDecimal::new(dec!(3.0)).unwrap());
+        assert_eq!(order.filled_quantity(), UDecimal::new(dec!(2.0)).unwrap());
 
-        order.fill_order(3.0);
+        order.fill_order(UDecimal::new(dec!(3.0)).unwrap());
         assert_eq!(*order.status(), OrderStatus::Executed);
         assert!(order.is_filled());
+        assert_eq!(order.filled_quantity(), UDecimal::new(dec!(5.0)).unwrap());
+    }
+
+    #[test]
+    pub fn test_order_update() {
+        let mut order = Order::new(
+            "o1".into(),
+            "BTC-USDT".into(),
+            UDecimal::new(dec!(5.0)).unwrap(),
+            OrderType::LimitBuy,
+            Some(UDecimal::new(dec!(60000.0)).unwrap()),
+        )
+        .unwrap();
+
+        assert!(order
+            .update(
+                None,
+                Some(UDecimal::new(dec!(61000.0)).unwrap()),
+                Some(UDecimal::new(dec!(7.0)).unwrap())
+            )
+            .is_ok());
+        assert_eq!(order.price(), &Some(UDecimal::new(dec!(61000.0)).unwrap()));
+        assert_eq!(order.quantity(), UDecimal::new(dec!(7.0)).unwrap());
+        assert_eq!(order.initial_quantity(), UDecimal::new(dec!(7.0)).unwrap());
+
+        // Zero price should fail
+        assert!(order.update(None, Some(UDecimal::ZERO), None).is_err());
+        assert_eq!(order.price(), &Some(UDecimal::new(dec!(61000.0)).unwrap()));
     }
 }

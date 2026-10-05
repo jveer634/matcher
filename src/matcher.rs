@@ -1,9 +1,8 @@
-use rust_decimal::Decimal;
-
 use crate::orderbook::{
     order::{Order, OrderType},
     orderbook::{BookLevel, OrderBook},
     trade::Trade,
+    udecimal::UDecimal,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,13 +14,13 @@ pub struct MatchResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatcherStats {
     pub symbol: String,
-    pub last_traded_price: Option<Decimal>,
+    pub last_traded_price: Option<UDecimal>,
     pub total_trades_count: usize,
-    pub total_volume_traded: f64,
-    pub active_buy_volume: f64,
-    pub active_sell_volume: f64,
-    pub best_bid: Option<(Decimal, f64)>,
-    pub best_ask: Option<(Decimal, f64)>,
+    pub total_volume_traded: UDecimal,
+    pub active_buy_volume: UDecimal,
+    pub active_sell_volume: UDecimal,
+    pub best_bid: Option<(UDecimal, UDecimal)>,
+    pub best_ask: Option<(UDecimal, UDecimal)>,
 }
 
 /// A dedicated matching engine shard for a single symbol / trading pair.
@@ -31,16 +30,16 @@ pub struct Matcher {
     symbol: String,
     orderbook: OrderBook,
     trade_history: Vec<Trade>,
-    total_volume_traded: f64,
+    total_volume_traded: UDecimal,
 }
 
 impl Matcher {
-    pub fn new(symbol: String, listing_price: Option<f64>) -> Self {
+    pub fn new(symbol: String, listing_price: Option<UDecimal>) -> Self {
         Matcher {
             symbol: symbol.clone(),
             orderbook: OrderBook::new(symbol, listing_price),
             trade_history: Vec::new(),
-            total_volume_traded: 0.0,
+            total_volume_traded: UDecimal::ZERO,
         }
     }
 
@@ -51,8 +50,8 @@ impl Matcher {
     pub fn submit_order(
         &mut self,
         order_type: OrderType,
-        price: Option<f64>,
-        quantity: f64,
+        price: Option<UDecimal>,
+        quantity: UDecimal,
     ) -> Result<MatchResult, String> {
         let (order_id, trades) = self.orderbook.add_order(order_type, price, quantity)?;
 
@@ -71,9 +70,9 @@ impl Matcher {
     pub fn update_order(
         &mut self,
         order_id: &str,
-        quantity: Option<f64>,
+        quantity: Option<UDecimal>,
         order_type: Option<OrderType>,
-        price: Option<f64>,
+        price: Option<UDecimal>,
     ) -> Result<MatchResult, String> {
         let (order, trades) = self
             .orderbook
@@ -102,7 +101,7 @@ impl Matcher {
         &self.trade_history
     }
 
-    pub fn last_traded_price(&self) -> Option<Decimal> {
+    pub fn last_traded_price(&self) -> Option<UDecimal> {
         self.orderbook.last_traded_price()
     }
 
@@ -123,30 +122,51 @@ impl Matcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     pub fn test_single_symbol_matcher() {
-        let mut matcher = Matcher::new("BTC-USDT".to_string(), Some(65000.0));
+        let mut matcher = Matcher::new(
+            "BTC-USDT".to_string(),
+            Some(UDecimal::new(dec!(65000.0)).unwrap()),
+        );
         assert_eq!(matcher.symbol(), "BTC-USDT");
 
         // Submit limit sell
         let sell_res = matcher
-            .submit_order(OrderType::LimitSell, Some(65000.0), 2.0)
+            .submit_order(
+                OrderType::LimitSell,
+                Some(UDecimal::new(dec!(65000.0)).unwrap()),
+                UDecimal::new(dec!(2.0)).unwrap(),
+            )
             .expect("place limit sell");
         assert_eq!(sell_res.trades.len(), 0);
 
         // Submit matching limit buy
         let buy_res = matcher
-            .submit_order(OrderType::LimitBuy, Some(65000.0), 1.5)
+            .submit_order(
+                OrderType::LimitBuy,
+                Some(UDecimal::new(dec!(65000.0)).unwrap()),
+                UDecimal::new(dec!(1.5)).unwrap(),
+            )
             .expect("place limit buy");
         assert_eq!(buy_res.trades.len(), 1);
-        assert_eq!(buy_res.trades[0].quantity, 1.5);
+        assert_eq!(
+            buy_res.trades[0].quantity,
+            UDecimal::new(dec!(1.5)).unwrap()
+        );
         assert_eq!(buy_res.trades[0].symbol, "BTC-USDT");
 
         let stats = matcher.stats();
         assert_eq!(stats.total_trades_count, 1);
-        assert_eq!(stats.total_volume_traded, 1.5);
-        assert_eq!(stats.active_sell_volume, 0.5);
-        assert_eq!(stats.active_buy_volume, 0.0);
+        assert_eq!(
+            stats.total_volume_traded,
+            UDecimal::new(dec!(1.5)).unwrap()
+        );
+        assert_eq!(
+            stats.active_sell_volume,
+            UDecimal::new(dec!(0.5)).unwrap()
+        );
+        assert_eq!(stats.active_buy_volume, UDecimal::ZERO);
     }
 }

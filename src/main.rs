@@ -1,6 +1,5 @@
-use matcher::{
-    OrderType, ShardedEngine,
-};
+use matcher::{OrderType, ShardedEngine, UDecimal};
+use rust_decimal_macros::dec;
 
 fn main() {
     println!("=======================================================");
@@ -12,13 +11,22 @@ fn main() {
 
     // Register independent per-symbol shards
     engine
-        .register_symbol("BTC-USDT", Some(65000.0))
+        .register_symbol(
+            "BTC-USDT",
+            Some(UDecimal::new(dec!(65000.0)).unwrap()),
+        )
         .expect("Failed to register BTC-USDT shard");
     engine
-        .register_symbol("ETH-USDT", Some(3500.0))
+        .register_symbol(
+            "ETH-USDT",
+            Some(UDecimal::new(dec!(3500.0)).unwrap()),
+        )
         .expect("Failed to register ETH-USDT shard");
     engine
-        .register_symbol("SOL-USDT", Some(150.0))
+        .register_symbol(
+            "SOL-USDT",
+            Some(UDecimal::new(dec!(150.0)).unwrap()),
+        )
         .expect("Failed to register SOL-USDT shard");
 
     println!("Registered Shards: {:?}", engine.list_symbols());
@@ -26,18 +34,38 @@ fn main() {
     // --- Shard 1: BTC-USDT Activity ---
     println!("\n--- [BTC-USDT Shard] Placing resting limit orders ---");
     engine
-        .submit_order("BTC-USDT", OrderType::LimitSell, Some(65100.0), 2.5)
+        .submit_order(
+            "BTC-USDT",
+            OrderType::LimitSell,
+            Some(UDecimal::new(dec!(65100.0)).unwrap()),
+            UDecimal::new(dec!(2.5)).unwrap(),
+        )
         .expect("Place limit sell");
     engine
-        .submit_order("BTC-USDT", OrderType::LimitSell, Some(65200.0), 1.0)
+        .submit_order(
+            "BTC-USDT",
+            OrderType::LimitSell,
+            Some(UDecimal::new(dec!(65200.0)).unwrap()),
+            UDecimal::new(dec!(1.0)).unwrap(),
+        )
         .expect("Place limit sell");
     engine
-        .submit_order("BTC-USDT", OrderType::LimitBuy, Some(64900.0), 3.0)
+        .submit_order(
+            "BTC-USDT",
+            OrderType::LimitBuy,
+            Some(UDecimal::new(dec!(64900.0)).unwrap()),
+            UDecimal::new(dec!(3.0)).unwrap(),
+        )
         .expect("Place limit buy");
 
     println!("--- [BTC-USDT Shard] Submitting matching Market Buy ---");
     let btc_match = engine
-        .submit_order("BTC-USDT", OrderType::Buy, None, 2.0)
+        .submit_order(
+            "BTC-USDT",
+            OrderType::Buy,
+            None,
+            UDecimal::new(dec!(2.0)).unwrap(),
+        )
         .expect("Place market buy");
     println!(
         "BTC-USDT Execution Trades Generated ({}):",
@@ -45,19 +73,34 @@ fn main() {
     );
     for t in &btc_match.trades {
         println!(
-            "  -> Trade ID: {}, Price: {}, Quantity: {}, Maker: {}, Taker: {}",
-            t.id, t.price, t.quantity, t.maker_order_id, t.taker_order_id
+            "  -> Trade ID: {}, Price: {}, Quantity: {}, Value: {}, Maker: {}, Taker: {}",
+            t.id,
+            t.price,
+            t.quantity,
+            t.notional(),
+            t.maker_order_id,
+            t.taker_order_id
         );
     }
 
     // --- Shard 2: ETH-USDT Activity ---
     println!("\n--- [ETH-USDT Shard] Placing Limit Sell & Crossing Limit Buy ---");
     engine
-        .submit_order("ETH-USDT", OrderType::LimitSell, Some(3500.0), 10.0)
+        .submit_order(
+            "ETH-USDT",
+            OrderType::LimitSell,
+            Some(UDecimal::new(dec!(3500.0)).unwrap()),
+            UDecimal::new(dec!(10.0)).unwrap(),
+        )
         .expect("Place ETH limit sell");
 
     let eth_match = engine
-        .submit_order("ETH-USDT", OrderType::LimitBuy, Some(3500.0), 4.0)
+        .submit_order(
+            "ETH-USDT",
+            OrderType::LimitBuy,
+            Some(UDecimal::new(dec!(3500.0)).unwrap()),
+            UDecimal::new(dec!(4.0)).unwrap(),
+        )
         .expect("Place ETH limit buy");
     println!(
         "ETH-USDT Execution Trades Generated ({}):",
@@ -65,8 +108,11 @@ fn main() {
     );
     for t in &eth_match.trades {
         println!(
-            "  -> Trade ID: {}, Price: {}, Quantity: {}",
-            t.id, t.price, t.quantity
+            "  -> Trade ID: {}, Price: {}, Quantity: {}, Value: {}",
+            t.id,
+            t.price,
+            t.quantity,
+            t.notional()
         );
     }
 

@@ -6,6 +6,7 @@ use crate::orderbook::{
     order::{Order, OrderType},
     orderbook::BookLevel,
     trade::Trade,
+    udecimal::UDecimal,
 };
 
 /// Command sent to a sharded symbol matcher
@@ -14,8 +15,8 @@ pub enum ShardCommand {
     SubmitOrder {
         symbol: String,
         order_type: OrderType,
-        price: Option<f64>,
-        quantity: f64,
+        price: Option<UDecimal>,
+        quantity: UDecimal,
     },
     CancelOrder {
         symbol: String,
@@ -24,9 +25,9 @@ pub enum ShardCommand {
     UpdateOrder {
         symbol: String,
         order_id: String,
-        quantity: Option<f64>,
+        quantity: Option<UDecimal>,
         order_type: Option<OrderType>,
-        price: Option<f64>,
+        price: Option<UDecimal>,
     },
 }
 
@@ -45,7 +46,11 @@ impl ShardedEngine {
     }
 
     /// Register a new symbol shard
-    pub fn register_symbol(&mut self, symbol: &str, listing_price: Option<f64>) -> Result<(), String> {
+    pub fn register_symbol(
+        &mut self,
+        symbol: &str,
+        listing_price: Option<UDecimal>,
+    ) -> Result<(), String> {
         if self.shards.contains_key(symbol) {
             return Err(format!("Symbol shard '{}' already registered", symbol));
         }
@@ -79,8 +84,8 @@ impl ShardedEngine {
         &self,
         symbol: &str,
         order_type: OrderType,
-        price: Option<f64>,
-        quantity: f64,
+        price: Option<UDecimal>,
+        quantity: UDecimal,
     ) -> Result<MatchResult, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
@@ -99,9 +104,9 @@ impl ShardedEngine {
         &self,
         symbol: &str,
         order_id: &str,
-        quantity: Option<f64>,
+        quantity: Option<UDecimal>,
         order_type: Option<OrderType>,
-        price: Option<f64>,
+        price: Option<UDecimal>,
     ) -> Result<MatchResult, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
@@ -137,14 +142,30 @@ impl ShardedEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
     use std::thread;
 
     #[test]
     pub fn test_sharded_engine_concurrent_symbols() {
         let mut engine = ShardedEngine::new();
-        engine.register_symbol("BTC-USDT", Some(60000.0)).unwrap();
-        engine.register_symbol("ETH-USDT", Some(3000.0)).unwrap();
-        engine.register_symbol("SOL-USDT", Some(150.0)).unwrap();
+        engine
+            .register_symbol(
+                "BTC-USDT",
+                Some(UDecimal::new(dec!(60000.0)).unwrap()),
+            )
+            .unwrap();
+        engine
+            .register_symbol(
+                "ETH-USDT",
+                Some(UDecimal::new(dec!(3000.0)).unwrap()),
+            )
+            .unwrap();
+        engine
+            .register_symbol(
+                "SOL-USDT",
+                Some(UDecimal::new(dec!(150.0)).unwrap()),
+            )
+            .unwrap();
 
         let engine = Arc::new(engine);
 
@@ -154,10 +175,20 @@ mod tests {
         let btc_engine = Arc::clone(&engine);
         handles.push(thread::spawn(move || {
             btc_engine
-                .submit_order("BTC-USDT", OrderType::LimitSell, Some(60000.0), 1.0)
+                .submit_order(
+                    "BTC-USDT",
+                    OrderType::LimitSell,
+                    Some(UDecimal::new(dec!(60000.0)).unwrap()),
+                    UDecimal::new(dec!(1.0)).unwrap(),
+                )
                 .unwrap();
             let res = btc_engine
-                .submit_order("BTC-USDT", OrderType::LimitBuy, Some(60000.0), 1.0)
+                .submit_order(
+                    "BTC-USDT",
+                    OrderType::LimitBuy,
+                    Some(UDecimal::new(dec!(60000.0)).unwrap()),
+                    UDecimal::new(dec!(1.0)).unwrap(),
+                )
                 .unwrap();
             assert_eq!(res.trades.len(), 1);
         }));
@@ -165,10 +196,20 @@ mod tests {
         let eth_engine = Arc::clone(&engine);
         handles.push(thread::spawn(move || {
             eth_engine
-                .submit_order("ETH-USDT", OrderType::LimitSell, Some(3000.0), 10.0)
+                .submit_order(
+                    "ETH-USDT",
+                    OrderType::LimitSell,
+                    Some(UDecimal::new(dec!(3000.0)).unwrap()),
+                    UDecimal::new(dec!(10.0)).unwrap(),
+                )
                 .unwrap();
             let res = eth_engine
-                .submit_order("ETH-USDT", OrderType::LimitBuy, Some(3000.0), 5.0)
+                .submit_order(
+                    "ETH-USDT",
+                    OrderType::LimitBuy,
+                    Some(UDecimal::new(dec!(3000.0)).unwrap()),
+                    UDecimal::new(dec!(5.0)).unwrap(),
+                )
                 .unwrap();
             assert_eq!(res.trades.len(), 1);
         }));
@@ -176,10 +217,20 @@ mod tests {
         let sol_engine = Arc::clone(&engine);
         handles.push(thread::spawn(move || {
             sol_engine
-                .submit_order("SOL-USDT", OrderType::LimitSell, Some(150.0), 100.0)
+                .submit_order(
+                    "SOL-USDT",
+                    OrderType::LimitSell,
+                    Some(UDecimal::new(dec!(150.0)).unwrap()),
+                    UDecimal::new(dec!(100.0)).unwrap(),
+                )
                 .unwrap();
             let res = sol_engine
-                .submit_order("SOL-USDT", OrderType::Buy, None, 40.0)
+                .submit_order(
+                    "SOL-USDT",
+                    OrderType::Buy,
+                    None,
+                    UDecimal::new(dec!(40.0)).unwrap(),
+                )
                 .unwrap();
             assert_eq!(res.trades.len(), 1);
         }));
@@ -192,8 +243,17 @@ mod tests {
         let eth_stats = engine.get_stats("ETH-USDT").unwrap();
         let sol_stats = engine.get_stats("SOL-USDT").unwrap();
 
-        assert_eq!(btc_stats.total_volume_traded, 1.0);
-        assert_eq!(eth_stats.total_volume_traded, 5.0);
-        assert_eq!(sol_stats.total_volume_traded, 40.0);
+        assert_eq!(
+            btc_stats.total_volume_traded,
+            UDecimal::new(dec!(1.0)).unwrap()
+        );
+        assert_eq!(
+            eth_stats.total_volume_traded,
+            UDecimal::new(dec!(5.0)).unwrap()
+        );
+        assert_eq!(
+            sol_stats.total_volume_traded,
+            UDecimal::new(dec!(40.0)).unwrap()
+        );
     }
 }
