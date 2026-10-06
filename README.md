@@ -84,12 +84,12 @@ let mut btc_matcher = Matcher::new("BTC-USDT".to_string(), Some(UDecimal::new(de
 
 // Submit a Limit Sell order: 2.0 BTC @ $65,100
 let sell_res = btc_matcher
-    .submit_order(Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(2.0)).unwrap())
+    .submit_order("ord-1".into(), "user-alice".into(), Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(2.0)).unwrap())
     .expect("Submit limit sell");
 
 // Submit a matching Limit Buy order: 1.0 BTC @ $65,100
 let buy_res = btc_matcher
-    .submit_order(Side::Buy, OrderType::Limit, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap())
+    .submit_order("ord-2".into(), "user-bob".into(), Side::Buy, OrderType::Limit, Some(UDecimal::new(dec!(65100.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap())
     .expect("Submit limit buy");
 
 // Inspect generated trades
@@ -119,13 +119,13 @@ let btc_engine = Arc::clone(&engine);
 let eth_engine = Arc::clone(&engine);
 
 let btc_handle = thread::spawn(move || {
-    btc_engine.submit_order("BTC-USDT", Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(65000.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap()).unwrap();
-    btc_engine.submit_order("BTC-USDT", Side::Buy, OrderType::Market, None, UDecimal::new(dec!(1.0)).unwrap()).unwrap();
+    btc_engine.submit_order("btc-1".into(), "user-alice".into(), "BTC-USDT", Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(65000.0)).unwrap()), UDecimal::new(dec!(1.0)).unwrap()).unwrap();
+    btc_engine.submit_order("btc-2".into(), "user-bob".into(), "BTC-USDT", Side::Buy, OrderType::Market, None, UDecimal::new(dec!(1.0)).unwrap()).unwrap();
 });
 
 let eth_handle = thread::spawn(move || {
-    eth_engine.submit_order("ETH-USDT", Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(10.0)).unwrap()).unwrap();
-    eth_engine.submit_order("ETH-USDT", Side::Buy, OrderType::Limit, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(5.0)).unwrap()).unwrap();
+    eth_engine.submit_order("eth-1".into(), "user-carol".into(), "ETH-USDT", Side::Sell, OrderType::Limit, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(10.0)).unwrap()).unwrap();
+    eth_engine.submit_order("eth-2".into(), "user-dave".into(), "ETH-USDT", Side::Buy, OrderType::Limit, Some(UDecimal::new(dec!(3500.0)).unwrap()), UDecimal::new(dec!(5.0)).unwrap()).unwrap();
 });
 
 btc_handle.join().unwrap();

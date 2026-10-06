@@ -44,19 +44,31 @@ impl Matcher {
 
     pub fn submit_order(
         &mut self,
+        id: String,
+        user_id: String,
         side: Side,
         order_type: OrderType,
         price: Option<UDecimal>,
         quantity: UDecimal,
     ) -> Result<MatchResult, String> {
-        let (order_id, trades) = self.orderbook.add_order(side, order_type, price, quantity)?;
+        let trades = self.orderbook.add_order(
+            id.clone(),
+            user_id,
+            side,
+            order_type,
+            price,
+            quantity,
+        )?;
 
         for trade in &trades {
             self.total_volume_traded += trade.quantity;
             self.trade_history.push(trade.clone());
         }
 
-        Ok(MatchResult { order_id, trades })
+        Ok(MatchResult {
+            order_id: id,
+            trades,
+        })
     }
 
     pub fn cancel_order(&mut self, order_id: &str) -> Result<Order, String> {
@@ -109,6 +121,8 @@ mod tests {
         // Submit limit sell
         let sell_res = matcher
             .submit_order(
+                "ord-sell-1".into(),
+                "user-maker-1".into(),
                 Side::Sell,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(65000.0)).unwrap()),
@@ -116,10 +130,13 @@ mod tests {
             )
             .expect("place limit sell");
         assert_eq!(sell_res.trades.len(), 0);
+        assert_eq!(sell_res.order_id, "ord-sell-1");
 
         // Submit matching limit buy
         let buy_res = matcher
             .submit_order(
+                "ord-buy-1".into(),
+                "user-taker-1".into(),
                 Side::Buy,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(65000.0)).unwrap()),
@@ -127,10 +144,13 @@ mod tests {
             )
             .expect("place limit buy");
         assert_eq!(buy_res.trades.len(), 1);
+        assert_eq!(buy_res.order_id, "ord-buy-1");
         assert_eq!(
             buy_res.trades[0].quantity,
             UDecimal::new(dec!(1.5)).unwrap()
         );
+        assert_eq!(buy_res.trades[0].maker_order_id, "ord-sell-1");
+        assert_eq!(buy_res.trades[0].taker_order_id, "ord-buy-1");
         assert_eq!(buy_res.trades[0].symbol, "BTC-USDT");
 
         let stats = matcher.stats();

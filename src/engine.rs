@@ -8,6 +8,8 @@ use crate::orderbook::{BookLevel, Order, OrderType, Side, Trade, UDecimal};
 #[derive(Debug, Clone)]
 pub enum ShardCommand {
     SubmitOrder {
+        id: String,
+        user_id: String,
         symbol: String,
         side: Side,
         order_type: OrderType,
@@ -71,6 +73,8 @@ impl ShardedEngine {
     /// Submit an order to the dedicated symbol shard
     pub fn submit_order(
         &self,
+        id: String,
+        user_id: String,
         symbol: &str,
         side: Side,
         order_type: OrderType,
@@ -79,7 +83,7 @@ impl ShardedEngine {
     ) -> Result<MatchResult, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
-        matcher.submit_order(side, order_type, price, quantity)
+        matcher.submit_order(id, user_id, side, order_type, price, quantity)
     }
 
     /// Cancel an order in the dedicated symbol shard
@@ -152,6 +156,8 @@ mod tests {
         handles.push(thread::spawn(move || {
             btc_engine
                 .submit_order(
+                    "btc-sell-1".into(),
+                    "user-btc-maker".into(),
                     "BTC-USDT",
                     Side::Sell,
                     OrderType::Limit,
@@ -161,6 +167,8 @@ mod tests {
                 .unwrap();
             let res = btc_engine
                 .submit_order(
+                    "btc-buy-1".into(),
+                    "user-btc-taker".into(),
                     "BTC-USDT",
                     Side::Buy,
                     OrderType::Limit,
@@ -169,12 +177,16 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(res.trades.len(), 1);
+            assert_eq!(res.trades[0].maker_order_id, "btc-sell-1");
+            assert_eq!(res.trades[0].taker_order_id, "btc-buy-1");
         }));
 
         let eth_engine = Arc::clone(&engine);
         handles.push(thread::spawn(move || {
             eth_engine
                 .submit_order(
+                    "eth-sell-1".into(),
+                    "user-eth-maker".into(),
                     "ETH-USDT",
                     Side::Sell,
                     OrderType::Limit,
@@ -184,6 +196,8 @@ mod tests {
                 .unwrap();
             let res = eth_engine
                 .submit_order(
+                    "eth-buy-1".into(),
+                    "user-eth-taker".into(),
                     "ETH-USDT",
                     Side::Buy,
                     OrderType::Limit,
@@ -198,6 +212,8 @@ mod tests {
         handles.push(thread::spawn(move || {
             sol_engine
                 .submit_order(
+                    "sol-sell-1".into(),
+                    "user-sol-maker".into(),
                     "SOL-USDT",
                     Side::Sell,
                     OrderType::Limit,
@@ -207,6 +223,8 @@ mod tests {
                 .unwrap();
             let res = sol_engine
                 .submit_order(
+                    "sol-buy-1".into(),
+                    "user-sol-taker".into(),
                     "SOL-USDT",
                     Side::Buy,
                     OrderType::Market,

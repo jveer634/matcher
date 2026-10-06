@@ -35,6 +35,8 @@ fn main() {
     println!("\n--- [BTC-USDT Shard] Placing resting limit orders ---");
     engine
         .submit_order(
+            "btc-ord-001".into(),
+            "user-trader-alice".into(),
             "BTC-USDT",
             Side::Sell,
             OrderType::Limit,
@@ -44,6 +46,8 @@ fn main() {
         .expect("Place limit sell");
     engine
         .submit_order(
+            "btc-ord-002".into(),
+            "user-trader-bob".into(),
             "BTC-USDT",
             Side::Sell,
             OrderType::Limit,
@@ -53,6 +57,8 @@ fn main() {
         .expect("Place limit sell");
     engine
         .submit_order(
+            "btc-ord-003".into(),
+            "user-trader-carol".into(),
             "BTC-USDT",
             Side::Buy,
             OrderType::Limit,
@@ -64,6 +70,8 @@ fn main() {
     println!("--- [BTC-USDT Shard] Submitting matching Market Buy ---");
     let btc_match = engine
         .submit_order(
+            "btc-ord-004".into(),
+            "user-trader-dave".into(),
             "BTC-USDT",
             Side::Buy,
             OrderType::Market,
@@ -91,6 +99,8 @@ fn main() {
     println!("\n--- [ETH-USDT Shard] Placing Limit Sell & Crossing Limit Buy ---");
     engine
         .submit_order(
+            "eth-ord-001".into(),
+            "user-trader-alice".into(),
             "ETH-USDT",
             Side::Sell,
             OrderType::Limit,
@@ -101,6 +111,8 @@ fn main() {
 
     let eth_match = engine
         .submit_order(
+            "eth-ord-002".into(),
+            "user-trader-eve".into(),
             "ETH-USDT",
             Side::Buy,
             OrderType::Limit,

@@ -1,4 +1,4 @@
-mod id_generator;
+pub mod id_generator;
 pub mod level;
 pub mod order;
 pub mod orderbook;

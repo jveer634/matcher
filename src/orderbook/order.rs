@@ -7,6 +7,7 @@ use super::udecimal::UDecimal;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Order {
     id: String,
+    user_id: String,
     symbol: String,
     side: Side,
     order_type: OrderType,
@@ -20,12 +21,21 @@ pub struct Order {
 impl Order {
     pub fn new(
         id: String,
+        user_id: String,
         symbol: String,
         side: Side,
         order_type: OrderType,
         quantity: UDecimal,
         price: Option<UDecimal>,
     ) -> Result<Order, String> {
+        if id.trim().is_empty() {
+            return Err("Order id cannot be empty".to_string());
+        }
+
+        if user_id.trim().is_empty() {
+            return Err("User id cannot be empty".to_string());
+        }
+
         if quantity.is_zero() {
             return Err("Order quantity must be positive".to_string());
         }
@@ -45,6 +55,7 @@ impl Order {
 
         Ok(Order {
             id,
+            user_id,
             symbol,
             side,
             order_type,
@@ -99,6 +110,10 @@ impl Order {
         &self.id
     }
 
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
     pub fn symbol(&self) -> &str {
         &self.symbol
     }
@@ -133,6 +148,7 @@ mod tests {
     pub fn test_order_creation() {
         let buy = Order::new(
             "o1".into(),
+            "u1".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Market,
@@ -140,10 +156,14 @@ mod tests {
             None,
         );
         assert!(buy.is_ok());
-        assert_eq!(buy.unwrap().price(), None);
+        let o = buy.unwrap();
+        assert_eq!(o.id(), "o1");
+        assert_eq!(o.user_id(), "u1");
+        assert_eq!(o.price(), None);
 
         let buy_with_extraneous_price = Order::new(
             "o1_m".into(),
+            "u1".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Market,
@@ -155,6 +175,7 @@ mod tests {
 
         let limit_buy = Order::new(
             "o2".into(),
+            "u2".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Limit,
@@ -165,6 +186,7 @@ mod tests {
 
         let limit_no_price = Order::new(
             "o3".into(),
+            "u3".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Limit,
@@ -175,6 +197,7 @@ mod tests {
 
         let zero_price = Order::new(
             "o4".into(),
+            "u4".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Limit,
@@ -185,6 +208,7 @@ mod tests {
 
         let zero_qty = Order::new(
             "o5".into(),
+            "u5".into(),
             "ETH-USDT".into(),
             Side::Buy,
             OrderType::Market,
@@ -192,12 +216,35 @@ mod tests {
             None,
         );
         assert!(zero_qty.is_err());
+
+        let empty_id = Order::new(
+            "".into(),
+            "u1".into(),
+            "ETH-USDT".into(),
+            Side::Buy,
+            OrderType::Market,
+            UDecimal::new(dec!(1.0)).unwrap(),
+            None,
+        );
+        assert!(empty_id.is_err());
+
+        let empty_user = Order::new(
+            "o1".into(),
+            "".into(),
+            "ETH-USDT".into(),
+            Side::Buy,
+            OrderType::Market,
+            UDecimal::new(dec!(1.0)).unwrap(),
+            None,
+        );
+        assert!(empty_user.is_err());
     }
 
     #[test]
     pub fn test_order_fill_and_status() {
         let mut order = Order::new(
             "o1".into(),
+            "u1".into(),
             "BTC-USDT".into(),
             Side::Buy,
             OrderType::Limit,
@@ -221,6 +268,7 @@ mod tests {
     pub fn test_order_cancellation() {
         let mut order = Order::new(
             "o1".into(),
+            "u1".into(),
             "BTC-USDT".into(),
             Side::Buy,
             OrderType::Limit,

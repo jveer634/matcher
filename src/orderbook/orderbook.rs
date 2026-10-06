@@ -44,14 +44,20 @@ impl OrderBook {
 
     pub fn add_order(
         &mut self,
+        id: String,
+        user_id: String,
         side: Side,
         order_type: OrderType,
         price: Option<UDecimal>,
         quantity: UDecimal,
-    ) -> Result<(String, Vec<Trade>), String> {
-        let id = self.id_generator.generate_order_id();
+    ) -> Result<Vec<Trade>, String> {
+        if self.order_index.contains_key(&id) {
+            return Err(format!("Order with id '{}' already exists in book", id));
+        }
+
         let mut order = Order::new(
             id.clone(),
+            user_id,
             self.pair_id.clone(),
             side,
             order_type,
@@ -68,7 +74,7 @@ impl OrderBook {
             self.order_index.insert(order.id().to_string(), order);
         }
 
-        Ok((id, trades))
+        Ok(trades)
     }
 
     /// Common matching helper: matches an aggressive order against maker orders in a FIFO queue at a specific price level.
@@ -98,7 +104,7 @@ impl OrderBook {
             self.last_traded_price = Some(trade_price);
 
             let trade = Trade::new(
-                self.id_generator.generate_trade_id(),
+                self.id_generator.generate_id(),
                 self.pair_id.clone(),
                 book_order.id().to_string(),
                 order.id().to_string(),
@@ -121,10 +127,7 @@ impl OrderBook {
             }
         }
 
-        if orders_map
-            .get(&level_price)
-            .map_or(false, |q| q.is_empty())
-        {
+        if orders_map.get(&level_price).map_or(false, |q| q.is_empty()) {
             orders_map.remove(&level_price);
         }
     }
@@ -289,8 +292,10 @@ mod tests {
             Some(UDecimal::new(dec!(1000.0)).unwrap()),
         );
 
-        let (order_id, trades) = book
+        let trades = book
             .add_order(
+                "ord-1".into(),
+                "user-1".into(),
                 Side::Buy,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(1050.0)).unwrap()),
@@ -299,12 +304,37 @@ mod tests {
             .expect("add order");
         assert_eq!(trades.len(), 0);
         assert_eq!(book.buy_volume, UDecimal::new(dec!(10.0)).unwrap());
-        assert!(book.get_order(&order_id).is_some());
+        assert!(book.get_order("ord-1").is_some());
+        assert_eq!(book.get_order("ord-1").unwrap().user_id(), "user-1");
 
-        let cancelled = book.cancel_order(&order_id).expect("cancel");
+        let cancelled = book.cancel_order("ord-1").expect("cancel");
         assert_eq!(cancelled.status(), OrderStatus::Cancelled);
         assert_eq!(book.buy_volume, UDecimal::ZERO);
-        assert!(book.get_order(&order_id).is_none());
+        assert!(book.get_order("ord-1").is_none());
+    }
+
+    #[test]
+    pub fn test_duplicate_order_id_rejected() {
+        let mut book = OrderBook::new("BTC-USDT".to_string(), None);
+        book.add_order(
+            "ord-dup".into(),
+            "u1".into(),
+            Side::Buy,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(50000.0)).unwrap()),
+            UDecimal::new(dec!(1.0)).unwrap(),
+        )
+        .unwrap();
+
+        let dup = book.add_order(
+            "ord-dup".into(),
+            "u2".into(),
+            Side::Buy,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(50000.0)).unwrap()),
+            UDecimal::new(dec!(1.0)).unwrap(),
+        );
+        assert!(dup.is_err());
     }
 
     #[test]
@@ -313,6 +343,8 @@ mod tests {
 
         // Place asks: 1 BTC @ 50000, 1 BTC @ 51000
         book.add_order(
+            "ask-1".into(),
+            "u1".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(50000.0)).unwrap()),
@@ -320,6 +352,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "ask-2".into(),
+            "u2".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(51000.0)).unwrap()),
@@ -328,8 +362,10 @@ mod tests {
         .unwrap();
 
         // Place limit buy: 1.5 BTC @ 50500 -> Should fill 1.0 BTC @ 50000, 0.5 rests @ 50500
-        let (buy_id, trades) = book
+        let trades = book
             .add_order(
+                "buy-1".into(),
+                "u3".into(),
                 Side::Buy,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(50500.0)).unwrap()),
@@ -340,14 +376,11 @@ mod tests {
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].quantity, UDecimal::new(dec!(1.0)).unwrap());
         assert_eq!(trades[0].price, UDecimal::new(dec!(50000.0)).unwrap());
-        assert_eq!(
-            trades[0].notional(),
-            UDecimal::new(dec!(50000.0)).unwrap()
-        );
+        assert_eq!(trades[0].notional(), UDecimal::new(dec!(50000.0)).unwrap());
         assert_eq!(book.buy_volume, UDecimal::new(dec!(0.5)).unwrap());
         assert_eq!(book.sell_volume, UDecimal::new(dec!(1.0)).unwrap());
 
-        let resting = book.get_order(&buy_id).unwrap();
+        let resting = book.get_order("buy-1").unwrap();
         assert_eq!(resting.quantity(), UDecimal::new(dec!(0.5)).unwrap());
     }
 
@@ -356,6 +389,8 @@ mod tests {
         let mut book = OrderBook::new("SOL-USDT".to_string(), None);
 
         book.add_order(
+            "ask-1".into(),
+            "u1".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(100.0)).unwrap()),
@@ -363,6 +398,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "ask-2".into(),
+            "u2".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(101.0)).unwrap()),
@@ -370,22 +407,23 @@ mod tests {
         )
         .unwrap();
 
-        let (_, trades) = book
-            .add_order(Side::Buy, OrderType::Market, None, UDecimal::new(dec!(7.0)).unwrap())
+        let trades = book
+            .add_order(
+                "market-buy".into(),
+                "u3".into(),
+                Side::Buy,
+                OrderType::Market,
+                None,
+                UDecimal::new(dec!(7.0)).unwrap(),
+            )
             .unwrap();
         assert_eq!(trades.len(), 2);
         assert_eq!(trades[0].quantity, UDecimal::new(dec!(5.0)).unwrap());
         assert_eq!(trades[0].price, UDecimal::new(dec!(100.0)).unwrap());
-        assert_eq!(
-            trades[0].notional(),
-            UDecimal::new(dec!(500.0)).unwrap()
-        );
+        assert_eq!(trades[0].notional(), UDecimal::new(dec!(500.0)).unwrap());
         assert_eq!(trades[1].quantity, UDecimal::new(dec!(2.0)).unwrap());
         assert_eq!(trades[1].price, UDecimal::new(dec!(101.0)).unwrap());
-        assert_eq!(
-            trades[1].notional(),
-            UDecimal::new(dec!(202.0)).unwrap()
-        );
+        assert_eq!(trades[1].notional(), UDecimal::new(dec!(202.0)).unwrap());
 
         assert_eq!(book.sell_volume, UDecimal::new(dec!(3.0)).unwrap());
     }
@@ -394,6 +432,8 @@ mod tests {
     pub fn test_depth_snapshot() {
         let mut book = OrderBook::new("AVAX-USDT".to_string(), None);
         book.add_order(
+            "b1".into(),
+            "u1".into(),
             Side::Buy,
             OrderType::Limit,
             Some(UDecimal::new(dec!(30.0)).unwrap()),
@@ -401,6 +441,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "b2".into(),
+            "u2".into(),
             Side::Buy,
             OrderType::Limit,
             Some(UDecimal::new(dec!(29.0)).unwrap()),
@@ -408,6 +450,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "a1".into(),
+            "u3".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(31.0)).unwrap()),
@@ -430,6 +474,8 @@ mod tests {
 
         // Place resting asks across multiple levels
         book.add_order(
+            "a1".into(),
+            "u1".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(100.0)).unwrap()),
@@ -437,6 +483,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "a2".into(),
+            "u2".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(101.0)).unwrap()),
@@ -444,6 +492,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "a3".into(),
+            "u3".into(),
             Side::Sell,
             OrderType::Limit,
             Some(UDecimal::new(dec!(102.0)).unwrap()),
@@ -452,8 +502,10 @@ mod tests {
         .unwrap();
 
         // Limit buy with price 102 for 7 units matches best prices first: 100 -> 101 -> 102
-        let (_, trades) = book
+        let trades = book
             .add_order(
+                "b1".into(),
+                "u4".into(),
                 Side::Buy,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(102.0)).unwrap()),
@@ -484,6 +536,8 @@ mod tests {
 
         // Place resting bids across multiple levels
         book.add_order(
+            "b1".into(),
+            "u1".into(),
             Side::Buy,
             OrderType::Limit,
             Some(UDecimal::new(dec!(200.0)).unwrap()),
@@ -491,6 +545,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "b2".into(),
+            "u2".into(),
             Side::Buy,
             OrderType::Limit,
             Some(UDecimal::new(dec!(199.0)).unwrap()),
@@ -498,6 +554,8 @@ mod tests {
         )
         .unwrap();
         book.add_order(
+            "b3".into(),
+            "u3".into(),
             Side::Buy,
             OrderType::Limit,
             Some(UDecimal::new(dec!(198.0)).unwrap()),
@@ -506,8 +564,10 @@ mod tests {
         .unwrap();
 
         // Limit sell with price 198 for 7 units matches best prices first: 200 -> 199 -> 198
-        let (_, trades) = book
+        let trades = book
             .add_order(
+                "s1".into(),
+                "u4".into(),
                 Side::Sell,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(198.0)).unwrap()),
@@ -537,26 +597,30 @@ mod tests {
         let mut book = OrderBook::new("ETH-USDT".to_string(), None);
 
         // Place two orders at the exact same price
-        let (first_order_id, _) = book
-            .add_order(
-                Side::Sell,
-                OrderType::Limit,
-                Some(UDecimal::new(dec!(100.0)).unwrap()),
-                UDecimal::new(dec!(2.0)).unwrap(),
-            )
-            .unwrap();
-        let (second_order_id, _) = book
-            .add_order(
-                Side::Sell,
-                OrderType::Limit,
-                Some(UDecimal::new(dec!(100.0)).unwrap()),
-                UDecimal::new(dec!(3.0)).unwrap(),
-            )
-            .unwrap();
+        book.add_order(
+            "s1".into(),
+            "u1".into(),
+            Side::Sell,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(100.0)).unwrap()),
+            UDecimal::new(dec!(2.0)).unwrap(),
+        )
+        .unwrap();
+        book.add_order(
+            "s2".into(),
+            "u2".into(),
+            Side::Sell,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(100.0)).unwrap()),
+            UDecimal::new(dec!(3.0)).unwrap(),
+        )
+        .unwrap();
 
         // Limit buy for 3.0 units should fill the first order completely (2.0) and second order partially (1.0)
-        let (_, trades) = book
+        let trades = book
             .add_order(
+                "b1".into(),
+                "u3".into(),
                 Side::Buy,
                 OrderType::Limit,
                 Some(UDecimal::new(dec!(100.0)).unwrap()),
@@ -565,14 +629,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(trades.len(), 2);
-        assert_eq!(trades[0].maker_order_id, first_order_id);
+        assert_eq!(trades[0].maker_order_id, "s1");
         assert_eq!(trades[0].quantity, UDecimal::new(dec!(2.0)).unwrap());
-        assert_eq!(trades[1].maker_order_id, second_order_id);
+        assert_eq!(trades[1].maker_order_id, "s2");
         assert_eq!(trades[1].quantity, UDecimal::new(dec!(1.0)).unwrap());
 
         // First order must be gone, second order has 2.0 remaining
-        assert!(book.get_order(&first_order_id).is_none());
-        let second = book.get_order(&second_order_id).unwrap();
+        assert!(book.get_order("s1").is_none());
+        let second = book.get_order("s2").unwrap();
         assert_eq!(second.quantity(), UDecimal::new(dec!(2.0)).unwrap());
     }
 }
