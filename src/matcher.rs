@@ -1,9 +1,4 @@
-use crate::orderbook::{
-    order::{Order, OrderType},
-    orderbook::{BookLevel, OrderBook},
-    trade::Trade,
-    udecimal::UDecimal,
-};
+use crate::orderbook::{BookLevel, Order, OrderBook, OrderType, Side, Trade, UDecimal};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchResult {
@@ -49,11 +44,12 @@ impl Matcher {
 
     pub fn submit_order(
         &mut self,
+        side: Side,
         order_type: OrderType,
         price: Option<UDecimal>,
         quantity: UDecimal,
     ) -> Result<MatchResult, String> {
-        let (order_id, trades) = self.orderbook.add_order(order_type, price, quantity)?;
+        let (order_id, trades) = self.orderbook.add_order(side, order_type, price, quantity)?;
 
         for trade in &trades {
             self.total_volume_traded += trade.quantity;
@@ -65,28 +61,6 @@ impl Matcher {
 
     pub fn cancel_order(&mut self, order_id: &str) -> Result<Order, String> {
         self.orderbook.cancel_order(order_id)
-    }
-
-    pub fn update_order(
-        &mut self,
-        order_id: &str,
-        quantity: Option<UDecimal>,
-        order_type: Option<OrderType>,
-        price: Option<UDecimal>,
-    ) -> Result<MatchResult, String> {
-        let (order, trades) = self
-            .orderbook
-            .update_order(order_id, quantity, order_type, price)?;
-
-        for trade in &trades {
-            self.total_volume_traded += trade.quantity;
-            self.trade_history.push(trade.clone());
-        }
-
-        Ok(MatchResult {
-            order_id: order.id().clone(),
-            trades,
-        })
     }
 
     pub fn get_order(&self, order_id: &str) -> Option<&Order> {
@@ -135,7 +109,8 @@ mod tests {
         // Submit limit sell
         let sell_res = matcher
             .submit_order(
-                OrderType::LimitSell,
+                Side::Sell,
+                OrderType::Limit,
                 Some(UDecimal::new(dec!(65000.0)).unwrap()),
                 UDecimal::new(dec!(2.0)).unwrap(),
             )
@@ -145,7 +120,8 @@ mod tests {
         // Submit matching limit buy
         let buy_res = matcher
             .submit_order(
-                OrderType::LimitBuy,
+                Side::Buy,
+                OrderType::Limit,
                 Some(UDecimal::new(dec!(65000.0)).unwrap()),
                 UDecimal::new(dec!(1.5)).unwrap(),
             )

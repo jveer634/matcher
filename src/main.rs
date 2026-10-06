@@ -1,4 +1,4 @@
-use matcher::{OrderType, ShardedEngine, UDecimal};
+use matcher::{OrderType, ShardedEngine, Side, UDecimal};
 use rust_decimal_macros::dec;
 
 fn main() {
@@ -36,7 +36,8 @@ fn main() {
     engine
         .submit_order(
             "BTC-USDT",
-            OrderType::LimitSell,
+            Side::Sell,
+            OrderType::Limit,
             Some(UDecimal::new(dec!(65100.0)).unwrap()),
             UDecimal::new(dec!(2.5)).unwrap(),
         )
@@ -44,7 +45,8 @@ fn main() {
     engine
         .submit_order(
             "BTC-USDT",
-            OrderType::LimitSell,
+            Side::Sell,
+            OrderType::Limit,
             Some(UDecimal::new(dec!(65200.0)).unwrap()),
             UDecimal::new(dec!(1.0)).unwrap(),
         )
@@ -52,7 +54,8 @@ fn main() {
     engine
         .submit_order(
             "BTC-USDT",
-            OrderType::LimitBuy,
+            Side::Buy,
+            OrderType::Limit,
             Some(UDecimal::new(dec!(64900.0)).unwrap()),
             UDecimal::new(dec!(3.0)).unwrap(),
         )
@@ -62,7 +65,8 @@ fn main() {
     let btc_match = engine
         .submit_order(
             "BTC-USDT",
-            OrderType::Buy,
+            Side::Buy,
+            OrderType::Market,
             None,
             UDecimal::new(dec!(2.0)).unwrap(),
         )
@@ -88,7 +92,8 @@ fn main() {
     engine
         .submit_order(
             "ETH-USDT",
-            OrderType::LimitSell,
+            Side::Sell,
+            OrderType::Limit,
             Some(UDecimal::new(dec!(3500.0)).unwrap()),
             UDecimal::new(dec!(10.0)).unwrap(),
         )
@@ -97,7 +102,8 @@ fn main() {
     let eth_match = engine
         .submit_order(
             "ETH-USDT",
-            OrderType::LimitBuy,
+            Side::Buy,
+            OrderType::Limit,
             Some(UDecimal::new(dec!(3500.0)).unwrap()),
             UDecimal::new(dec!(4.0)).unwrap(),
         )

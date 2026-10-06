@@ -2,18 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::matcher::{MatchResult, Matcher, MatcherStats};
-use crate::orderbook::{
-    order::{Order, OrderType},
-    orderbook::BookLevel,
-    trade::Trade,
-    udecimal::UDecimal,
-};
+use crate::orderbook::{BookLevel, Order, OrderType, Side, Trade, UDecimal};
 
 /// Command sent to a sharded symbol matcher
 #[derive(Debug, Clone)]
 pub enum ShardCommand {
     SubmitOrder {
         symbol: String,
+        side: Side,
         order_type: OrderType,
         price: Option<UDecimal>,
         quantity: UDecimal,
@@ -21,13 +17,6 @@ pub enum ShardCommand {
     CancelOrder {
         symbol: String,
         order_id: String,
-    },
-    UpdateOrder {
-        symbol: String,
-        order_id: String,
-        quantity: Option<UDecimal>,
-        order_type: Option<OrderType>,
-        price: Option<UDecimal>,
     },
 }
 
@@ -83,13 +72,14 @@ impl ShardedEngine {
     pub fn submit_order(
         &self,
         symbol: &str,
+        side: Side,
         order_type: OrderType,
         price: Option<UDecimal>,
         quantity: UDecimal,
     ) -> Result<MatchResult, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
-        matcher.submit_order(order_type, price, quantity)
+        matcher.submit_order(side, order_type, price, quantity)
     }
 
     /// Cancel an order in the dedicated symbol shard
@@ -97,20 +87,6 @@ impl ShardedEngine {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
         matcher.cancel_order(order_id)
-    }
-
-    /// Update an order in the dedicated symbol shard
-    pub fn update_order(
-        &self,
-        symbol: &str,
-        order_id: &str,
-        quantity: Option<UDecimal>,
-        order_type: Option<OrderType>,
-        price: Option<UDecimal>,
-    ) -> Result<MatchResult, String> {
-        let shard = self.get_shard(symbol)?;
-        let mut matcher = shard.write().map_err(|e| e.to_string())?;
-        matcher.update_order(order_id, quantity, order_type, price)
     }
 
     /// Get order depth for a given symbol
@@ -177,7 +153,8 @@ mod tests {
             btc_engine
                 .submit_order(
                     "BTC-USDT",
-                    OrderType::LimitSell,
+                    Side::Sell,
+                    OrderType::Limit,
                     Some(UDecimal::new(dec!(60000.0)).unwrap()),
                     UDecimal::new(dec!(1.0)).unwrap(),
                 )
@@ -185,7 +162,8 @@ mod tests {
             let res = btc_engine
                 .submit_order(
                     "BTC-USDT",
-                    OrderType::LimitBuy,
+                    Side::Buy,
+                    OrderType::Limit,
                     Some(UDecimal::new(dec!(60000.0)).unwrap()),
                     UDecimal::new(dec!(1.0)).unwrap(),
                 )
@@ -198,7 +176,8 @@ mod tests {
             eth_engine
                 .submit_order(
                     "ETH-USDT",
-                    OrderType::LimitSell,
+                    Side::Sell,
+                    OrderType::Limit,
                     Some(UDecimal::new(dec!(3000.0)).unwrap()),
                     UDecimal::new(dec!(10.0)).unwrap(),
                 )
@@ -206,7 +185,8 @@ mod tests {
             let res = eth_engine
                 .submit_order(
                     "ETH-USDT",
-                    OrderType::LimitBuy,
+                    Side::Buy,
+                    OrderType::Limit,
                     Some(UDecimal::new(dec!(3000.0)).unwrap()),
                     UDecimal::new(dec!(5.0)).unwrap(),
                 )
@@ -219,7 +199,8 @@ mod tests {
             sol_engine
                 .submit_order(
                     "SOL-USDT",
-                    OrderType::LimitSell,
+                    Side::Sell,
+                    OrderType::Limit,
                     Some(UDecimal::new(dec!(150.0)).unwrap()),
                     UDecimal::new(dec!(100.0)).unwrap(),
                 )
@@ -227,7 +208,8 @@ mod tests {
             let res = sol_engine
                 .submit_order(
                     "SOL-USDT",
-                    OrderType::Buy,
+                    Side::Buy,
+                    OrderType::Market,
                     None,
                     UDecimal::new(dec!(40.0)).unwrap(),
                 )
