@@ -4,6 +4,8 @@ A high-performance, in-memory, price-time priority trading matching engine writt
 
 ## Architecture & Design
 
+> For visual Mermaid diagrams of request flows, sharding concurrency, and protobuf pipelines, see [Architecture & Relationships](docs/architecture.md).
+
 ### Per-Symbol Sharding Model
 In high-frequency exchange architectures, trading pairs operate independently. A cross-symbol lock creates unnecessary contention and bottlenecks.
 

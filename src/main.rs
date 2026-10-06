@@ -1,34 +1,59 @@
+use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use matcher::grpc::{MatcherServiceImpl, MatcherServiceServer};
 use matcher::{OrderType, ShardedEngine, Side, UDecimal};
 use rust_decimal_macros::dec;
 
-fn main() {
-    println!("=======================================================");
-    println!("  Starting Sharded High-Performance Matching Engine");
-    println!("  (Each shard dedicated to an isolated symbol copy)   ");
-    println!("=======================================================\n");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+    let is_demo = args.len() > 1 && (args[1] == "--demo" || args[1] == "-d");
 
-    let mut engine = ShardedEngine::new();
+    let engine = Arc::new(ShardedEngine::new());
 
-    // Register independent per-symbol shards
+    // Register initial default symbol shards
     engine
-        .register_symbol(
-            "BTC-USDT",
-            Some(UDecimal::new(dec!(65000.0)).unwrap()),
-        )
+        .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(65000.0)).unwrap()))
         .expect("Failed to register BTC-USDT shard");
     engine
-        .register_symbol(
-            "ETH-USDT",
-            Some(UDecimal::new(dec!(3500.0)).unwrap()),
-        )
+        .register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3500.0)).unwrap()))
         .expect("Failed to register ETH-USDT shard");
     engine
-        .register_symbol(
-            "SOL-USDT",
-            Some(UDecimal::new(dec!(150.0)).unwrap()),
-        )
+        .register_symbol("SOL-USDT", Some(UDecimal::new(dec!(150.0)).unwrap()))
         .expect("Failed to register SOL-USDT shard");
 
+    if is_demo {
+        run_demo(&engine);
+        return Ok(());
+    }
+
+    let port = env::var("PORT").unwrap_or_else(|_| "50051".to_string());
+    let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
+
+    println!("=======================================================");
+    println!("  Matcher High-Performance gRPC Service");
+    println!("=======================================================");
+    println!("  Listening on: http://{}", addr);
+    println!("  Registered Symbol Shards: {:?}", engine.list_symbols());
+    println!("  gRPC Service: engine.v1.MatcherService");
+    println!("=======================================================\n");
+
+    let service = MatcherServiceImpl::new(engine);
+
+    tonic::transport::Server::builder()
+        .add_service(MatcherServiceServer::new(service))
+        .serve(addr)
+        .await?;
+
+    Ok(())
+}
+
+fn run_demo(engine: &ShardedEngine) {
+    println!("=======================================================");
+    println!("  Running Matcher Sharded Execution Demo");
+    println!("=======================================================\n");
     println!("Registered Shards: {:?}", engine.list_symbols());
 
     // --- Shard 1: BTC-USDT Activity ---
@@ -92,45 +117,6 @@ fn main() {
             t.notional(),
             t.maker_order_id,
             t.taker_order_id
-        );
-    }
-
-    // --- Shard 2: ETH-USDT Activity ---
-    println!("\n--- [ETH-USDT Shard] Placing Limit Sell & Crossing Limit Buy ---");
-    engine
-        .submit_order(
-            "eth-ord-001".into(),
-            "user-trader-alice".into(),
-            "ETH-USDT",
-            Side::Sell,
-            OrderType::Limit,
-            Some(UDecimal::new(dec!(3500.0)).unwrap()),
-            UDecimal::new(dec!(10.0)).unwrap(),
-        )
-        .expect("Place ETH limit sell");
-
-    let eth_match = engine
-        .submit_order(
-            "eth-ord-002".into(),
-            "user-trader-eve".into(),
-            "ETH-USDT",
-            Side::Buy,
-            OrderType::Limit,
-            Some(UDecimal::new(dec!(3500.0)).unwrap()),
-            UDecimal::new(dec!(4.0)).unwrap(),
-        )
-        .expect("Place ETH limit buy");
-    println!(
-        "ETH-USDT Execution Trades Generated ({}):",
-        eth_match.trades.len()
-    );
-    for t in &eth_match.trades {
-        println!(
-            "  -> Trade ID: {}, Price: {}, Quantity: {}, Value: {}",
-            t.id,
-            t.price,
-            t.quantity,
-            t.notional()
         );
     }
 
