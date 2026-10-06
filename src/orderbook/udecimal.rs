@@ -26,7 +26,10 @@ impl UDecimal {
     /// Creates a new `UDecimal` that must be strictly positive (> 0).
     pub fn new_strictly_positive(val: Decimal) -> Result<Self, String> {
         if val <= Decimal::ZERO {
-            Err(format!("Expected strictly positive value (> 0), got {}", val))
+            Err(format!(
+                "Expected strictly positive value (> 0), got {}",
+                val
+            ))
         } else {
             Ok(UDecimal(val))
         }
@@ -76,6 +79,13 @@ impl UDecimal {
     #[inline]
     pub fn max(self, other: UDecimal) -> Self {
         UDecimal(self.0.max(other.0))
+    }
+
+    /// Converts the `UDecimal` to `f64`.
+    #[inline]
+    pub fn to_f64(&self) -> f64 {
+        use rust_decimal::prelude::ToPrimitive;
+        self.0.to_f64().unwrap_or(0.0)
     }
 }
 

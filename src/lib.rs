@@ -1,4 +1,6 @@
 pub mod engine;
+pub mod gen;
+pub mod grpc;
 pub mod matcher;
 pub mod orderbook;
 
