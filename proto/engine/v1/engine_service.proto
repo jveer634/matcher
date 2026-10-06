@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package engine.v1;
+
+import "engine/v1/engine.proto";
+
+service MatcherService {
+  rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetDepth(GetDepthRequest) returns (GetDepthResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+  rpc GetTradeHistory(GetTradeHistoryRequest) returns (GetTradeHistoryResponse);
+  rpc RegisterSymbol(RegisterSymbolRequest) returns (RegisterSymbolResponse);
+  rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+}

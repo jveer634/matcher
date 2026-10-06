@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package engine.v1;
+
+import "order/v1/order.proto";
+import "orderbook/v1/orderbook.proto";
+import "trade/v1/trade.proto";
+
+message SubmitOrderRequest {
+  string order_id = 1;
+  string user_id = 2;
+  string symbol = 3;
+  order.v1.Side side = 4;
+  order.v1.OrderType order_type = 5;
+  optional double price = 6;
+  double quantity = 7;
+}
+
+message MatchResult {
+  string order_id = 1;
+  repeated trade.v1.Trade trades = 2;
+  optional order.v1.Order order = 3;
+}
+
+message SubmitOrderResponse {
+  string order_id = 1;
+  repeated trade.v1.Trade trades = 2;
+  optional order.v1.Order order = 3;
+}
+
+message CancelOrderRequest {
+  string symbol = 1;
+  string order_id = 2;
+}
+
+message CancelOrderResponse {
+  order.v1.Order order = 1;
+}
+
+message GetDepthRequest {
+  string symbol = 1;
+  uint32 limit = 2;
+}
+
+message GetDepthResponse {
+  string symbol = 1;
+  repeated orderbook.v1.BookLevel bids = 2;
+  repeated orderbook.v1.BookLevel asks = 3;
+}
+
+message GetStatsRequest {
+  string symbol = 1;
+}
+
+message GetStatsResponse {
+  orderbook.v1.Stats stats = 1;
+}
+
+message GetTradeHistoryRequest {
+  string symbol = 1;
+}
+
+message GetTradeHistoryResponse {
+  string symbol = 1;
+  repeated trade.v1.Trade trades = 2;
+}
+
+message RegisterSymbolRequest {
+  string symbol = 1;
+  optional double listing_price = 2;
+}
+
+message RegisterSymbolResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListSymbolsRequest {}
+
+message ListSymbolsResponse {
+  repeated string symbols = 1;
+}

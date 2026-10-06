@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package order.v1;
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_LIMIT = 1;
+  ORDER_TYPE_MARKET = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_OPEN = 1;
+  ORDER_STATUS_EXECUTED = 2;
+  ORDER_STATUS_CANCELLED = 3;
+  ORDER_STATUS_PARTIALLY_EXECUTED = 4;
+}
+
+message Order {
+  string id = 1;
+  string user_id = 2;
+  string symbol = 3;
+  Side side = 4;
+  OrderType order_type = 5;
+  optional double price = 6;
+  double quantity = 7;
+  double initial_quantity = 8;
+  double filled_quantity = 9;
+  int64 timestamp = 10; // milliseconds
+  OrderStatus status = 11;
+}

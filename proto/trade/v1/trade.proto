@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package trade.v1;
+
+message Trade {
+  string id = 1;
+  string symbol = 2;
+  double price = 3;
+  double quantity = 4;
+  int64 timestamp = 5;
+}
+
+message TradeHistory {
+  string symbol = 1;
+  repeated Trade trades = 2;
+}
