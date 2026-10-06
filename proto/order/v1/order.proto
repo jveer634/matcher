@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package order.v1;
 
+import "buf/validate/validate.proto";
+
 enum Side {
   SIDE_UNSPECIFIED = 0;
   SIDE_BUY = 1;
@@ -23,15 +25,50 @@ enum OrderStatus {
 }
 
 message Order {
-  string id = 1;
-  string user_id = 2;
-  string symbol = 3;
-  Side side = 4;
-  OrderType order_type = 5;
-  optional double price = 6;
-  double quantity = 7;
-  double initial_quantity = 8;
-  double filled_quantity = 9;
-  int64 timestamp = 10; // milliseconds
-  OrderStatus status = 11;
+  string id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "id"
+  ];
+  string user_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "userId"
+  ];
+  string symbol = 3 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  Side side = 4 [
+    (buf.validate.field).enum.defined_only = true,
+    json_name = "side"
+  ];
+  OrderType order_type = 5 [
+    (buf.validate.field).enum.defined_only = true,
+    json_name = "orderType"
+  ];
+  optional double price = 6 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "price"
+  ];
+  double quantity = 7 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "quantity"
+  ];
+  OrderStatus status = 8 [
+    (buf.validate.field).enum.defined_only = true,
+    json_name = "status"
+  ];
+  double filled_quantity = 9 [
+    (buf.validate.field).double.gte = 0,
+    json_name = "filledQuantity"
+  ];
+  // timestamp in milliseconds
+  int64 timestamp = 10 [
+    (buf.validate.field).int64.gt = 0,
+    json_name = "timestamp"
+  ];
+
+  double remaining = 11 [
+    (buf.validate.field).double.gte = 0,
+    json_name = "remaining"
+  ];
 }

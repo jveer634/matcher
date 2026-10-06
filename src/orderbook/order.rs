@@ -12,7 +12,7 @@ pub struct Order {
     side: Side,
     order_type: OrderType,
     quantity: UDecimal,
-    initial_quantity: UDecimal,
+    remaining: UDecimal,
     price: Option<UDecimal>,
     status: OrderStatus,
     timestamp: i64,
@@ -60,7 +60,7 @@ impl Order {
             side,
             order_type,
             quantity,
-            initial_quantity: quantity,
+            remaining: quantity,
             price: decimal_price,
             timestamp: dt.timestamp_millis(),
             status: OrderStatus::Open,
@@ -98,12 +98,12 @@ impl Order {
         self.quantity
     }
 
-    pub fn initial_quantity(&self) -> UDecimal {
-        self.initial_quantity
+    pub fn remaining(&self) -> UDecimal {
+        self.remaining
     }
 
     pub fn filled_quantity(&self) -> UDecimal {
-        self.initial_quantity - self.quantity
+        self.remaining - self.quantity
     }
 
     pub fn id(&self) -> &str {

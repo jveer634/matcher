@@ -2,81 +2,164 @@ syntax = "proto3";
 
 package engine.v1;
 
+import "buf/validate/validate.proto";
 import "order/v1/order.proto";
 import "orderbook/v1/orderbook.proto";
 import "trade/v1/trade.proto";
 
 message SubmitOrderRequest {
-  string order_id = 1;
-  string user_id = 2;
-  string symbol = 3;
-  order.v1.Side side = 4;
-  order.v1.OrderType order_type = 5;
-  optional double price = 6;
-  double quantity = 7;
+  string order_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "orderId"
+  ];
+  string user_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "userId"
+  ];
+  string symbol = 3 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  order.v1.Side side = 4 [
+    (buf.validate.field).enum.defined_only = true,
+    json_name = "side"
+  ];
+  order.v1.OrderType order_type = 5 [
+    (buf.validate.field).enum.defined_only = true,
+    json_name = "orderType"
+  ];
+  optional double price = 6 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "price"
+  ];
+  double quantity = 7 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "quantity"
+  ];
 }
 
 message MatchResult {
-  string order_id = 1;
-  repeated trade.v1.Trade trades = 2;
-  optional order.v1.Order order = 3;
+  string order_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "orderId"
+  ];
+  repeated trade.v1.Trade trades = 2 [
+    json_name = "trades"
+  ];
+  optional order.v1.Order order = 3 [
+    json_name = "order"
+  ];
 }
 
 message SubmitOrderResponse {
-  string order_id = 1;
-  repeated trade.v1.Trade trades = 2;
-  optional order.v1.Order order = 3;
+  string order_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "orderId"
+  ];
+  repeated trade.v1.Trade trades = 2 [
+    json_name = "trades"
+  ];
+  optional order.v1.Order order = 3 [
+    json_name = "order"
+  ];
 }
 
 message CancelOrderRequest {
-  string symbol = 1;
-  string order_id = 2;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  string order_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "orderId"
+  ];
 }
 
 message CancelOrderResponse {
-  order.v1.Order order = 1;
+  order.v1.Order order = 1 [
+    json_name = "order"
+  ];
 }
 
 message GetDepthRequest {
-  string symbol = 1;
-  uint32 limit = 2;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  uint32 limit = 2 [
+    (buf.validate.field).uint32.gt = 0,
+    json_name = "limit"
+  ];
 }
 
 message GetDepthResponse {
-  string symbol = 1;
-  repeated orderbook.v1.BookLevel bids = 2;
-  repeated orderbook.v1.BookLevel asks = 3;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  repeated orderbook.v1.BookLevel bids = 2 [
+    json_name = "bids"
+  ];
+  repeated orderbook.v1.BookLevel asks = 3 [
+    json_name = "asks"
+  ];
 }
 
 message GetStatsRequest {
-  string symbol = 1;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
 }
 
 message GetStatsResponse {
-  orderbook.v1.Stats stats = 1;
+  orderbook.v1.Stats stats = 1 [
+    json_name = "stats"
+  ];
 }
 
 message GetTradeHistoryRequest {
-  string symbol = 1;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
 }
 
 message GetTradeHistoryResponse {
-  string symbol = 1;
-  repeated trade.v1.Trade trades = 2;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  repeated trade.v1.Trade trades = 2 [
+    json_name = "trades"
+  ];
 }
 
 message RegisterSymbolRequest {
-  string symbol = 1;
-  optional double listing_price = 2;
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  optional double listing_price = 2 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "listingPrice"
+  ];
 }
 
 message RegisterSymbolResponse {
-  bool success = 1;
-  string message = 2;
+  bool success = 1 [
+    json_name = "success"
+  ];
+  string message = 2 [
+    json_name = "message"
+  ];
 }
 
 message ListSymbolsRequest {}
 
 message ListSymbolsResponse {
-  repeated string symbols = 1;
+  repeated string symbols = 1 [
+    json_name = "symbols"
+  ];
 }
+

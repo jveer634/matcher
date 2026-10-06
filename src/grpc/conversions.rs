@@ -152,7 +152,7 @@ impl From<&Order> for ProtoOrder {
             order_type: ProtoOrderType::from(order.order_type()) as i32,
             price: order.price().map(|p| p.to_f64()),
             quantity: order.quantity().to_f64(),
-            initial_quantity: order.initial_quantity().to_f64(),
+            remaining: order.remaining().to_f64(),
             filled_quantity: order.filled_quantity().to_f64(),
             timestamp: order.timestamp(),
             status: ProtoOrderStatus::from(order.status()) as i32,
