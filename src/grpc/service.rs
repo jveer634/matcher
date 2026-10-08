@@ -33,61 +33,41 @@ impl MatcherService for MatcherServiceImpl {
     ) -> Result<Response<SubmitOrderResponse>, Status> {
         let req = request.into_inner();
 
-        let symbol = req.symbol.trim();
-        if symbol.is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
-
-        let user_id = req.user_id.trim();
-        if user_id.is_empty() {
-            return Err(Status::invalid_argument("user_id cannot be empty"));
-        }
-
-        let order_id = if req.order_id.trim().is_empty() {
-            format!(
-                "ord-{}",
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-            )
-        } else {
-            req.order_id.trim().to_string()
-        };
-
         let side = Side::try_from(req.side).map_err(Status::invalid_argument)?;
         let order_type = OrderType::try_from(req.order_type).map_err(Status::invalid_argument)?;
-
         let quantity = UDecimal::try_from(req.quantity)
-            .map_err(|e| Status::invalid_argument(format!("Invalid quantity: {}", e)))?;
-        if quantity.is_zero() {
-            return Err(Status::invalid_argument(
-                "Quantity must be strictly positive",
-            ));
-        }
+            .map_err(|e| Status::invalid_argument(format!("Invalid quantity: {e}")))?;
 
         let price = match req.price {
-            Some(p) => {
-                let dec = UDecimal::try_from(p)
-                    .map_err(|e| Status::invalid_argument(format!("Invalid price: {}", e)))?;
-                Some(dec)
-            }
+            Some(p) => Some(
+                UDecimal::try_from(p)
+                    .map_err(|e| Status::invalid_argument(format!("Invalid price: {e}")))?,
+            ),
             None => None,
         };
 
         let match_res = self
             .engine
             .submit_order(
-                order_id.clone(),
-                user_id.to_string(),
-                symbol,
+                req.order_id.clone(),
+                req.user_id,
+                &req.symbol,
                 side,
                 order_type,
                 price,
                 quantity,
             )
-            .map_err(Status::internal)?;
+            .map_err(|e| {
+                if e.contains("Unknown symbol") {
+                    Status::not_found(e)
+                } else {
+                    Status::invalid_argument(e)
+                }
+            })?;
 
         let current_order = self
             .engine
-            .get_order(symbol, &order_id)
+            .get_order(&req.symbol, &req.order_id)
             .unwrap_or(None)
             .map(|o| ProtoOrder::from(&o));
 
@@ -107,17 +87,18 @@ impl MatcherService for MatcherServiceImpl {
     ) -> Result<Response<CancelOrderResponse>, Status> {
         let req = request.into_inner();
 
-        if req.symbol.trim().is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
-        if req.order_id.trim().is_empty() {
-            return Err(Status::invalid_argument("order_id cannot be empty"));
-        }
-
         let order = self
             .engine
-            .cancel_order(&req.symbol, &req.order_id)
-            .map_err(Status::not_found)?;
+            .cancel_order(&req.symbol, &req.order_id, &req.user_id)
+            .map_err(|err| {
+                if err.contains("Unauthorized") {
+                    Status::permission_denied(err)
+                } else if err.contains("not found") || err.contains("Unknown symbol") {
+                    Status::not_found(err)
+                } else {
+                    Status::invalid_argument(err)
+                }
+            })?;
 
         Ok(Response::new(CancelOrderResponse {
             order: Some(ProtoOrder::from(&order)),
@@ -129,27 +110,17 @@ impl MatcherService for MatcherServiceImpl {
         request: Request<GetDepthRequest>,
     ) -> Result<Response<GetDepthResponse>, Status> {
         let req = request.into_inner();
-        let symbol = req.symbol.trim();
-        if symbol.is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
-
-        let limit = if req.limit == 0 {
-            50
-        } else {
-            req.limit as usize
-        };
 
         let (bids, asks) = self
             .engine
-            .get_depth(symbol, limit)
+            .get_depth(&req.symbol, req.limit as usize)
             .map_err(Status::not_found)?;
 
         let bids_proto = bids.into_iter().map(ProtoBookLevel::from).collect();
         let asks_proto = asks.into_iter().map(ProtoBookLevel::from).collect();
 
         Ok(Response::new(GetDepthResponse {
-            symbol: symbol.to_string(),
+            symbol: req.symbol,
             bids: bids_proto,
             asks: asks_proto,
         }))
@@ -160,12 +131,11 @@ impl MatcherService for MatcherServiceImpl {
         request: Request<GetStatsRequest>,
     ) -> Result<Response<GetStatsResponse>, Status> {
         let req = request.into_inner();
-        let symbol = req.symbol.trim();
-        if symbol.is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
 
-        let stats = self.engine.get_stats(symbol).map_err(Status::not_found)?;
+        let stats = self
+            .engine
+            .get_stats(&req.symbol)
+            .map_err(Status::not_found)?;
 
         Ok(Response::new(GetStatsResponse {
             stats: Some(ProtoStats::from(&stats)),
@@ -177,20 +147,16 @@ impl MatcherService for MatcherServiceImpl {
         request: Request<GetTradeHistoryRequest>,
     ) -> Result<Response<GetTradeHistoryResponse>, Status> {
         let req = request.into_inner();
-        let symbol = req.symbol.trim();
-        if symbol.is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
 
         let trades = self
             .engine
-            .get_trade_history(symbol)
+            .get_trade_history(&req.symbol)
             .map_err(Status::not_found)?;
 
         let trades_proto = trades.into_iter().map(ProtoTrade::from).collect();
 
         Ok(Response::new(GetTradeHistoryResponse {
-            symbol: symbol.to_string(),
+            symbol: req.symbol,
             trades: trades_proto,
         }))
     }
@@ -200,23 +166,19 @@ impl MatcherService for MatcherServiceImpl {
         request: Request<RegisterSymbolRequest>,
     ) -> Result<Response<RegisterSymbolResponse>, Status> {
         let req = request.into_inner();
-        let symbol = req.symbol.trim();
-        if symbol.is_empty() {
-            return Err(Status::invalid_argument("Symbol cannot be empty"));
-        }
 
-        let listing_price =
-            match req.listing_price {
-                Some(p) => Some(UDecimal::try_from(p).map_err(|e| {
-                    Status::invalid_argument(format!("Invalid listing price: {}", e))
-                })?),
-                None => None,
-            };
+        let listing_price = match req.listing_price {
+            Some(p) => Some(
+                UDecimal::try_from(p)
+                    .map_err(|e| Status::invalid_argument(format!("Invalid listing price: {e}")))?,
+            ),
+            None => None,
+        };
 
-        match self.engine.register_symbol(symbol, listing_price) {
+        match self.engine.register_symbol(&req.symbol, listing_price) {
             Ok(()) => Ok(Response::new(RegisterSymbolResponse {
                 success: true,
-                message: format!("Symbol '{}' registered successfully", symbol),
+                message: format!("Symbol '{}' registered successfully", req.symbol),
             })),
             Err(e) => Err(Status::already_exists(e)),
         }

@@ -208,7 +208,16 @@ impl OrderBook {
         trades
     }
 
-    pub fn cancel_order(&mut self, order_id: &str) -> Result<Order, String> {
+    pub fn cancel_order(&mut self, order_id: &str, user_id: &str) -> Result<Order, String> {
+        let order_ref = self
+            .order_index
+            .get(order_id)
+            .ok_or_else(|| "Order not found in book".to_string())?;
+
+        if order_ref.user_id() != user_id {
+            return Err("Unauthorized to cancel this order".to_string());
+        }
+
         let mut order = self
             .order_index
             .remove(order_id)
@@ -307,10 +316,29 @@ mod tests {
         assert!(book.get_order("ord-1").is_some());
         assert_eq!(book.get_order("ord-1").unwrap().user_id(), "user-1");
 
-        let cancelled = book.cancel_order("ord-1").expect("cancel");
+        let cancelled = book.cancel_order("ord-1", "user-1").expect("cancel");
         assert_eq!(cancelled.status(), OrderStatus::Cancelled);
         assert_eq!(book.buy_volume, UDecimal::ZERO);
         assert!(book.get_order("ord-1").is_none());
+    }
+
+    #[test]
+    pub fn test_unauthorized_cancel_rejected() {
+        let mut book = OrderBook::new("ETH-USDT".to_string(), None);
+        book.add_order(
+            "ord-1".into(),
+            "user-owner".into(),
+            Side::Buy,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(1000.0)).unwrap()),
+            UDecimal::new(dec!(1.0)).unwrap(),
+        )
+        .unwrap();
+
+        let err = book.cancel_order("ord-1", "user-attacker");
+        assert!(err.is_err());
+        assert_eq!(err.unwrap_err(), "Unauthorized to cancel this order");
+        assert!(book.get_order("ord-1").is_some());
     }
 
     #[test]

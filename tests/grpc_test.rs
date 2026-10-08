@@ -154,11 +154,23 @@ async fn test_grpc_submit_and_match_orders() {
     assert_eq!(history_res.trades.len(), 1);
     assert_eq!(history_res.trades[0].id, trade.id);
 
-    // Cancel remaining sell order
+    // Unauthorized cancel attempt by Bob on Alice's order
+    let unauthorized_err = service
+        .cancel_order(Request::new(CancelOrderRequest {
+            symbol: "BTC-USDT".to_string(),
+            order_id: "sell-1".to_string(),
+            user_id: "bob".to_string(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(unauthorized_err.code(), tonic::Code::PermissionDenied);
+
+    // Authorized cancel by Alice
     let cancel_res = service
         .cancel_order(Request::new(CancelOrderRequest {
             symbol: "BTC-USDT".to_string(),
             order_id: "sell-1".to_string(),
+            user_id: "alice".to_string(),
         }))
         .await
         .unwrap()
@@ -186,7 +198,7 @@ async fn test_grpc_validation_errors() {
         }))
         .await;
     assert!(res.is_err());
-    assert_eq!(res.unwrap_err().code(), tonic::Code::Internal);
+    assert_eq!(res.unwrap_err().code(), tonic::Code::NotFound);
 
     // Register pair
     service

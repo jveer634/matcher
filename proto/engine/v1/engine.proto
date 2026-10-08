@@ -7,6 +7,7 @@ import "order/v1/order.proto";
 import "orderbook/v1/orderbook.proto";
 import "trade/v1/trade.proto";
 
+// User authenticated methods
 message SubmitOrderRequest {
   string order_id = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -73,6 +74,12 @@ message CancelOrderRequest {
     (buf.validate.field).string.min_len = 1,
     json_name = "orderId"
   ];
+
+  string user_id = 3 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "userId"
+  ];
+
 }
 
 message CancelOrderResponse {
@@ -81,6 +88,7 @@ message CancelOrderResponse {
   ];
 }
 
+// public methods
 message GetDepthRequest {
   string symbol = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -135,6 +143,7 @@ message GetTradeHistoryResponse {
   ];
 }
 
+// Admin Methods
 message RegisterSymbolRequest {
   string symbol = 1 [
     (buf.validate.field).string.min_len = 1,

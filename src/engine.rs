@@ -19,6 +19,7 @@ pub enum ShardCommand {
     CancelOrder {
         symbol: String,
         order_id: String,
+        user_id: String,
     },
 }
 
@@ -94,10 +95,15 @@ impl ShardedEngine {
     }
 
     /// Cancel an order in the dedicated symbol shard
-    pub fn cancel_order(&self, symbol: &str, order_id: &str) -> Result<Order, String> {
+    pub fn cancel_order(
+        &self,
+        symbol: &str,
+        order_id: &str,
+        user_id: &str,
+    ) -> Result<Order, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
-        matcher.cancel_order(order_id)
+        matcher.cancel_order(order_id, user_id)
     }
 
     /// Get a cloned order from the dedicated symbol shard

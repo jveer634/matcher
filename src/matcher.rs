@@ -66,8 +66,12 @@ impl Matcher {
         })
     }
 
-    pub fn cancel_order(&mut self, order_id: &str) -> Result<Order, String> {
-        self.orderbook.cancel_order(order_id)
+    pub fn cancel_order(
+        &mut self,
+        order_id: &str,
+        user_id: &str,
+    ) -> Result<Order, String> {
+        self.orderbook.cancel_order(order_id, user_id)
     }
 
     pub fn get_order(&self, order_id: &str) -> Option<&Order> {
