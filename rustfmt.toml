@@ -1,0 +1,29 @@
+# Rustfmt Configuration
+# Documentation: https://rust-lang.github.io/rustfmt/
+
+# Edition of the Rust language to target
+edition = "2021"
+
+# Maximum line width (print width)
+max_width = 120
+
+# Number of spaces per tab
+tab_spaces = 4
+
+# Use spaces instead of tab characters
+hard_tabs = false
+
+# Unix line endings (\n)
+newline_style = "Unix"
+
+# Reorder import (`use`) statements alphabetically
+reorder_imports = true
+
+# Reorder `mod` declarations alphabetically
+reorder_modules = true
+
+# Use field initialization shorthand where possible (e.g. `Foo { x }` instead of `Foo { x: x }`)
+use_field_init_shorthand = true
+
+# Replace `try!` macro with `?` operator
+use_try_shorthand = true

@@ -224,5 +224,8 @@ async fn test_grpc_validation_errors() {
         }))
         .await;
     assert!(zero_qty_res.is_err());
-    assert_eq!(zero_qty_res.unwrap_err().code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        zero_qty_res.unwrap_err().code(),
+        tonic::Code::InvalidArgument
+    );
 }

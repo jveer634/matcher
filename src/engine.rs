@@ -143,22 +143,13 @@ mod tests {
     pub fn test_sharded_engine_concurrent_symbols() {
         let engine = ShardedEngine::new();
         engine
-            .register_symbol(
-                "BTC-USDT",
-                Some(UDecimal::new(dec!(60000.0)).unwrap()),
-            )
+            .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(60000.0)).unwrap()))
             .unwrap();
         engine
-            .register_symbol(
-                "ETH-USDT",
-                Some(UDecimal::new(dec!(3000.0)).unwrap()),
-            )
+            .register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3000.0)).unwrap()))
             .unwrap();
         engine
-            .register_symbol(
-                "SOL-USDT",
-                Some(UDecimal::new(dec!(150.0)).unwrap()),
-            )
+            .register_symbol("SOL-USDT", Some(UDecimal::new(dec!(150.0)).unwrap()))
             .unwrap();
 
         let engine = Arc::new(engine);

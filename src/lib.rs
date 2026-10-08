@@ -6,8 +6,6 @@ pub mod orderbook;
 
 pub use engine::ShardedEngine;
 pub use matcher::{MatchResult, Matcher, MatcherStats};
-pub use orderbook::{
-    BookLevel, Order, OrderBook, OrderStatus, OrderType, Side, Trade, UDecimal,
-};
+pub use orderbook::{BookLevel, Order, OrderBook, OrderStatus, OrderType, Side, Trade, UDecimal};
 
 pub type UnsignedDecimal = UDecimal;

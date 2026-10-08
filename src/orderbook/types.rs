@@ -136,13 +136,28 @@ mod tests {
         assert_eq!(OrderStatus::Open.to_string(), "OPEN");
         assert_eq!(OrderStatus::Executed.to_string(), "EXECUTED");
         assert_eq!(OrderStatus::Cancelled.to_string(), "CANCELLED");
-        assert_eq!(OrderStatus::PartiallyExecuted.to_string(), "PARTIALLY_EXECUTED");
+        assert_eq!(
+            OrderStatus::PartiallyExecuted.to_string(),
+            "PARTIALLY_EXECUTED"
+        );
 
         assert_eq!("open".parse::<OrderStatus>().unwrap(), OrderStatus::Open);
-        assert_eq!("EXECUTED".parse::<OrderStatus>().unwrap(), OrderStatus::Executed);
-        assert_eq!("cancelled".parse::<OrderStatus>().unwrap(), OrderStatus::Cancelled);
-        assert_eq!("partially_executed".parse::<OrderStatus>().unwrap(), OrderStatus::PartiallyExecuted);
-        assert_eq!("PARTIALLYEXECUTED".parse::<OrderStatus>().unwrap(), OrderStatus::PartiallyExecuted);
+        assert_eq!(
+            "EXECUTED".parse::<OrderStatus>().unwrap(),
+            OrderStatus::Executed
+        );
+        assert_eq!(
+            "cancelled".parse::<OrderStatus>().unwrap(),
+            OrderStatus::Cancelled
+        );
+        assert_eq!(
+            "partially_executed".parse::<OrderStatus>().unwrap(),
+            OrderStatus::PartiallyExecuted
+        );
+        assert_eq!(
+            "PARTIALLYEXECUTED".parse::<OrderStatus>().unwrap(),
+            OrderStatus::PartiallyExecuted
+        );
         assert!("unknown".parse::<OrderStatus>().is_err());
     }
 }

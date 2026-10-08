@@ -51,14 +51,9 @@ impl Matcher {
         price: Option<UDecimal>,
         quantity: UDecimal,
     ) -> Result<MatchResult, String> {
-        let trades = self.orderbook.add_order(
-            id.clone(),
-            user_id,
-            side,
-            order_type,
-            price,
-            quantity,
-        )?;
+        let trades =
+            self.orderbook
+                .add_order(id.clone(), user_id, side, order_type, price, quantity)?;
 
         for trade in &trades {
             self.total_volume_traded += trade.quantity;
@@ -155,14 +150,8 @@ mod tests {
 
         let stats = matcher.stats();
         assert_eq!(stats.total_trades_count, 1);
-        assert_eq!(
-            stats.total_volume_traded,
-            UDecimal::new(dec!(1.5)).unwrap()
-        );
-        assert_eq!(
-            stats.active_sell_volume,
-            UDecimal::new(dec!(0.5)).unwrap()
-        );
+        assert_eq!(stats.total_volume_traded, UDecimal::new(dec!(1.5)).unwrap());
+        assert_eq!(stats.active_sell_volume, UDecimal::new(dec!(0.5)).unwrap());
         assert_eq!(stats.active_buy_volume, UDecimal::ZERO);
     }
 }
