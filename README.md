@@ -4,6 +4,8 @@ A high-performance, in-memory, price-time priority trading matching engine writt
 
 ## Architecture & Design
 
+> For visual Mermaid diagrams of request flows, sharding concurrency, and protobuf pipelines, see [Architecture & Relationships](docs/architecture.md).
+
 ### Per-Symbol Sharding Model
 In high-frequency exchange architectures, trading pairs operate independently. A cross-symbol lock creates unnecessary contention and bottlenecks.
 
@@ -134,9 +136,55 @@ eth_handle.join().unwrap();
 
 ---
 
+## gRPC & Protobuf Service
+
+The matching engine exposes a high-performance **gRPC interface** powered by `tonic` and `prost`, managed with the **Buf CLI**.
+
+### Protobuf Schemas
+
+Protobuf definitions are modularized under [`proto/`](./proto/):
+- [`proto/order/v1/order.proto`](./proto/order/v1/order.proto): Order model, enums (`Side`, `OrderType`, `OrderStatus`).
+- [`proto/trade/v1/trade.proto`](./proto/trade/v1/trade.proto): Traded execution events and trade history.
+- [`proto/orderbook/v1/orderbook.proto`](./proto/orderbook/v1/orderbook.proto): L2 order book depth price levels and metrics.
+- [`proto/engine/v1/engine.proto`](./proto/engine/v1/engine.proto): Request/Response payload messages.
+- [`proto/engine/v1/engine_service.proto`](./proto/engine/v1/engine_service.proto): `MatcherService` RPC definitions:
+  - `SubmitOrder(SubmitOrderRequest) -> SubmitOrderResponse`
+  - `CancelOrder(CancelOrderRequest) -> CancelOrderResponse`
+  - `GetDepth(GetDepthRequest) -> GetDepthResponse`
+  - `GetStats(GetStatsRequest) -> GetStatsResponse`
+  - `GetTradeHistory(GetTradeHistoryRequest) -> GetTradeHistoryResponse`
+  - `RegisterSymbol(RegisterSymbolRequest) -> RegisterSymbolResponse`
+  - `ListSymbols(ListSymbolsRequest) -> ListSymbolsResponse`
+
+### Protobuf Generation with Buf CLI
+
+```bash
+# Lint Protobuf schemas against standard conventions
+buf lint
+
+# Generate Prost and Tonic Rust bindings into src/gen
+buf generate
+```
+
+### Starting the gRPC Server
+
+```bash
+# Start the gRPC server (default port: 50051)
+cargo run
+
+# Run with custom port
+PORT=50055 cargo run
+
+# Run in demo showcase mode
+cargo run -- --demo
+```
+
+---
+
 ## Testing
-Run unit and integration tests covering limit orders, market orders, order cancellations, depth snapshots, and multi-threaded sharding:
+Run unit and integration tests covering limit orders, market orders, order cancellations, depth snapshots, multi-threaded sharding, and gRPC endpoints:
 
 ```bash
 cargo test
 ```
+

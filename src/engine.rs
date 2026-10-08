@@ -26,45 +26,52 @@ pub enum ShardCommand {
 /// Each symbol is executed completely independently, eliminating cross-symbol lock contention.
 #[derive(Debug, Default)]
 pub struct ShardedEngine {
-    shards: HashMap<String, Arc<RwLock<Matcher>>>,
+    shards: RwLock<HashMap<String, Arc<RwLock<Matcher>>>>,
 }
 
 impl ShardedEngine {
     pub fn new() -> Self {
         ShardedEngine {
-            shards: HashMap::new(),
+            shards: RwLock::new(HashMap::new()),
         }
     }
 
     /// Register a new symbol shard
     pub fn register_symbol(
-        &mut self,
+        &self,
         symbol: &str,
         listing_price: Option<UDecimal>,
     ) -> Result<(), String> {
-        if self.shards.contains_key(symbol) {
+        let mut shards = self.shards.write().map_err(|e| e.to_string())?;
+        if shards.contains_key(symbol) {
             return Err(format!("Symbol shard '{}' already registered", symbol));
         }
 
         let matcher = Matcher::new(symbol.to_string(), listing_price);
-        self.shards
-            .insert(symbol.to_string(), Arc::new(RwLock::new(matcher)));
+        shards.insert(symbol.to_string(), Arc::new(RwLock::new(matcher)));
         Ok(())
     }
 
     /// Check if a symbol is registered
     pub fn has_symbol(&self, symbol: &str) -> bool {
-        self.shards.contains_key(symbol)
+        self.shards
+            .read()
+            .map(|s| s.contains_key(symbol))
+            .unwrap_or(false)
     }
 
     /// Get list of all registered symbols
     pub fn list_symbols(&self) -> Vec<String> {
-        self.shards.keys().cloned().collect()
+        self.shards
+            .read()
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Get a cloned Arc handle to a specific symbol shard for direct concurrent access
     pub fn get_shard(&self, symbol: &str) -> Result<Arc<RwLock<Matcher>>, String> {
-        self.shards
+        let shards = self.shards.read().map_err(|e| e.to_string())?;
+        shards
             .get(symbol)
             .cloned()
             .ok_or_else(|| format!("Unknown symbol shard '{}'", symbol))
@@ -91,6 +98,13 @@ impl ShardedEngine {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
         matcher.cancel_order(order_id)
+    }
+
+    /// Get a cloned order from the dedicated symbol shard
+    pub fn get_order(&self, symbol: &str, order_id: &str) -> Result<Option<Order>, String> {
+        let shard = self.get_shard(symbol)?;
+        let matcher = shard.read().map_err(|e| e.to_string())?;
+        Ok(matcher.get_order(order_id).cloned())
     }
 
     /// Get order depth for a given symbol
@@ -127,7 +141,7 @@ mod tests {
 
     #[test]
     pub fn test_sharded_engine_concurrent_symbols() {
-        let mut engine = ShardedEngine::new();
+        let engine = ShardedEngine::new();
         engine
             .register_symbol(
                 "BTC-USDT",

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package trade.v1;
+
+import "buf/validate/validate.proto";
+
+message Trade {
+  string id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "id"
+  ];
+  string symbol = 2 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  double price = 3 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "price"
+  ];
+  double quantity = 4 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "quantity"
+  ];
+  // timestamp in milliseconds
+  int64 timestamp = 5 [
+    (buf.validate.field).int64.gt = 0,
+    json_name = "timestamp"
+  ];
+}
+
+message TradeHistory {
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  repeated Trade trades = 2 [
+    json_name = "trades"
+  ];
+}
+

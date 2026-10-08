@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package orderbook.v1;
+
+import "buf/validate/validate.proto";
+
+message BookLevel {
+  double price = 1 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "price"
+  ];
+  double quantity = 2 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "quantity"
+  ];
+  uint64 order_count = 3 [
+    (buf.validate.field).uint64.gte = 0,
+    json_name = "orderCount"
+  ];
+}
+
+message Depth {
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  repeated BookLevel bids = 2 [
+    json_name = "bids"
+  ];
+  repeated BookLevel asks = 3 [
+    json_name = "asks"
+  ];
+}
+
+message Stats {
+  string symbol = 1 [
+    (buf.validate.field).string.min_len = 1,
+    json_name = "symbol"
+  ];
+  optional double last_traded_price = 2 [
+    (buf.validate.field).double.gt = 0,
+    json_name = "lastTradedPrice"
+  ];
+  uint64 total_trades_count = 3 [
+    (buf.validate.field).uint64.gte = 0,
+    json_name = "totalTradesCount"
+  ];
+  double total_volume_traded = 4 [
+    (buf.validate.field).double.gte = 0,
+    json_name = "totalVolumeTraded"
+  ];
+  double active_buy_volume = 5 [
+    (buf.validate.field).double.gte = 0,
+    json_name = "activeBuyVolume"
+  ];
+  double active_sell_volume = 6 [
+    (buf.validate.field).double.gte = 0,
+    json_name = "activeSellVolume"
+  ];
+  optional BookLevel best_bid = 7 [
+    json_name = "bestBid"
+  ];
+  optional BookLevel best_ask = 8 [
+    json_name = "bestAsk"
+  ];
+}
+
