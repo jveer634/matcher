@@ -4,4 +4,5 @@ TODO.md
 
 GEMINI.md
 
-src/gen/
+src/gen/*
+!src/gen/mod.rs

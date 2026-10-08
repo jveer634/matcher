@@ -91,11 +91,8 @@ impl MatcherService for MatcherServiceImpl {
             .unwrap_or(None)
             .map(|o| ProtoOrder::from(&o));
 
-        let trades_proto: Vec<ProtoTrade> = match_res
-            .trades
-            .into_iter()
-            .map(ProtoTrade::from)
-            .collect();
+        let trades_proto: Vec<ProtoTrade> =
+            match_res.trades.into_iter().map(ProtoTrade::from).collect();
 
         Ok(Response::new(SubmitOrderResponse {
             order_id: match_res.order_id,
@@ -168,10 +165,7 @@ impl MatcherService for MatcherServiceImpl {
             return Err(Status::invalid_argument("Symbol cannot be empty"));
         }
 
-        let stats = self
-            .engine
-            .get_stats(symbol)
-            .map_err(Status::not_found)?;
+        let stats = self.engine.get_stats(symbol).map_err(Status::not_found)?;
 
         Ok(Response::new(GetStatsResponse {
             stats: Some(ProtoStats::from(&stats)),
@@ -211,12 +205,13 @@ impl MatcherService for MatcherServiceImpl {
             return Err(Status::invalid_argument("Symbol cannot be empty"));
         }
 
-        let listing_price = match req.listing_price {
-            Some(p) => Some(UDecimal::try_from(p).map_err(|e| {
-                Status::invalid_argument(format!("Invalid listing price: {}", e))
-            })?),
-            None => None,
-        };
+        let listing_price =
+            match req.listing_price {
+                Some(p) => Some(UDecimal::try_from(p).map_err(|e| {
+                    Status::invalid_argument(format!("Invalid listing price: {}", e))
+                })?),
+                None => None,
+            };
 
         match self.engine.register_symbol(symbol, listing_price) {
             Ok(()) => Ok(Response::new(RegisterSymbolResponse {
