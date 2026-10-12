@@ -76,13 +76,22 @@ impl Server {
 
         let serve_res = tonic::transport::Server::builder()
             .add_service(MatcherServiceServer::new(service))
-            .serve(self.addr)
+            .serve_with_shutdown(self.addr, async {
+                if let Err(err) = tokio::signal::ctrl_c().await {
+                    eprintln!("Failed to install Ctrl+C signal handler: {err}");
+                } else {
+                    println!("\nShutdown signal received. Gracefully stopping services...");
+                }
+            })
             .await;
 
         // Gracefully stop attached background pruner on shutdown
         if let Some(handle) = self.pruner_handle.take() {
+            println!("Stopping background WAL pruner task...");
             handle.stop().await;
         }
+
+        println!("Matcher service stopped cleanly.");
 
         serve_res.map_err(Into::into)
     }
