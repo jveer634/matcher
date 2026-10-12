@@ -39,7 +39,10 @@ mod tests {
             )
             .expect("encode submit order");
 
-        assert_eq!(frame_bytes.len(), WalFrameHeader::SIZE + SBE_HEADER_SIZE + SUBMIT_ORDER_V1_BLOCK_LENGTH as usize);
+        assert_eq!(
+            frame_bytes.len(),
+            WalFrameHeader::SIZE + SBE_HEADER_SIZE + SUBMIT_ORDER_V1_BLOCK_LENGTH as usize
+        );
 
         let record = decoder.decode_frame(&frame_bytes).expect("decode submit order");
         assert_eq!(record.sequence, sequence);
@@ -81,7 +84,10 @@ mod tests {
         if let WalPayload::SubmitOrder(sbe) = record.payload {
             assert_eq!(decode_order_type(sbe.order_type).unwrap(), OrderType::Market);
             assert_eq!(decode_decimal(sbe.price_mantissa, sbe.price_scale).unwrap(), None);
-            assert_eq!(decode_decimal(sbe.qty_mantissa, sbe.qty_scale).unwrap(), Some(UDecimal::new(dec!(10.0)).unwrap()));
+            assert_eq!(
+                decode_decimal(sbe.qty_mantissa, sbe.qty_scale).unwrap(),
+                Some(UDecimal::new(dec!(10.0)).unwrap())
+            );
         } else {
             panic!("Expected SubmitOrder");
         }
@@ -101,7 +107,10 @@ mod tests {
             .encode_cancel_order(order_id, user_id, sequence, timestamp_ns)
             .expect("encode cancel order");
 
-        assert_eq!(frame_bytes.len(), WalFrameHeader::SIZE + SBE_HEADER_SIZE + CANCEL_ORDER_BLOCK_LENGTH as usize);
+        assert_eq!(
+            frame_bytes.len(),
+            WalFrameHeader::SIZE + SBE_HEADER_SIZE + CANCEL_ORDER_BLOCK_LENGTH as usize
+        );
 
         let record = decoder.decode_frame(&frame_bytes).expect("decode cancel order");
         assert_eq!(record.sequence, sequence);
@@ -139,9 +148,7 @@ mod tests {
         let encoder = SbeEncoder::new();
         let decoder = SbeDecoder::new();
 
-        let mut frame_bytes = encoder
-            .encode_cancel_order("ord-1", "user-1", 1, 100)
-            .unwrap();
+        let mut frame_bytes = encoder.encode_cancel_order("ord-1", "user-1", 1, 100).unwrap();
 
         // Corrupt 1 byte in the payload
         let last_idx = frame_bytes.len() - 1;

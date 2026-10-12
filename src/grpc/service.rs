@@ -4,10 +4,9 @@ use tonic::{Request, Response, Status};
 use crate::engine::ShardedEngine;
 use crate::gen::engine::v1::matcher_service_server::MatcherService;
 use crate::gen::engine::v1::{
-    CancelOrderRequest, CancelOrderResponse, GetDepthRequest, GetDepthResponse, GetStatsRequest,
-    GetStatsResponse, GetTradeHistoryRequest, GetTradeHistoryResponse, ListSymbolsRequest,
-    ListSymbolsResponse, RegisterSymbolRequest, RegisterSymbolResponse, SubmitOrderRequest,
-    SubmitOrderResponse,
+    CancelOrderRequest, CancelOrderResponse, GetDepthRequest, GetDepthResponse, GetStatsRequest, GetStatsResponse,
+    GetTradeHistoryRequest, GetTradeHistoryResponse, ListSymbolsRequest, ListSymbolsResponse, RegisterSymbolRequest,
+    RegisterSymbolResponse, SubmitOrderRequest, SubmitOrderResponse,
 };
 use crate::gen::order::v1::Order as ProtoOrder;
 use crate::gen::orderbook::v1::{BookLevel as ProtoBookLevel, Stats as ProtoStats};
@@ -35,14 +34,13 @@ impl MatcherService for MatcherServiceImpl {
 
         let side = Side::try_from(req.side).map_err(Status::invalid_argument)?;
         let order_type = OrderType::try_from(req.order_type).map_err(Status::invalid_argument)?;
-        let quantity = UDecimal::try_from(req.quantity)
-            .map_err(|e| Status::invalid_argument(format!("Invalid quantity: {e}")))?;
+        let quantity =
+            UDecimal::try_from(req.quantity).map_err(|e| Status::invalid_argument(format!("Invalid quantity: {e}")))?;
 
         let price = match req.price {
-            Some(p) => Some(
-                UDecimal::try_from(p)
-                    .map_err(|e| Status::invalid_argument(format!("Invalid price: {e}")))?,
-            ),
+            Some(p) => {
+                Some(UDecimal::try_from(p).map_err(|e| Status::invalid_argument(format!("Invalid price: {e}")))?)
+            }
             None => None,
         };
 
@@ -71,8 +69,7 @@ impl MatcherService for MatcherServiceImpl {
             .unwrap_or(None)
             .map(|o| ProtoOrder::from(&o));
 
-        let trades_proto: Vec<ProtoTrade> =
-            match_res.trades.into_iter().map(ProtoTrade::from).collect();
+        let trades_proto: Vec<ProtoTrade> = match_res.trades.into_iter().map(ProtoTrade::from).collect();
 
         Ok(Response::new(SubmitOrderResponse {
             order_id: match_res.order_id,
@@ -105,10 +102,7 @@ impl MatcherService for MatcherServiceImpl {
         }))
     }
 
-    async fn get_depth(
-        &self,
-        request: Request<GetDepthRequest>,
-    ) -> Result<Response<GetDepthResponse>, Status> {
+    async fn get_depth(&self, request: Request<GetDepthRequest>) -> Result<Response<GetDepthResponse>, Status> {
         let req = request.into_inner();
 
         let (bids, asks) = self
@@ -126,16 +120,10 @@ impl MatcherService for MatcherServiceImpl {
         }))
     }
 
-    async fn get_stats(
-        &self,
-        request: Request<GetStatsRequest>,
-    ) -> Result<Response<GetStatsResponse>, Status> {
+    async fn get_stats(&self, request: Request<GetStatsRequest>) -> Result<Response<GetStatsResponse>, Status> {
         let req = request.into_inner();
 
-        let stats = self
-            .engine
-            .get_stats(&req.symbol)
-            .map_err(Status::not_found)?;
+        let stats = self.engine.get_stats(&req.symbol).map_err(Status::not_found)?;
 
         Ok(Response::new(GetStatsResponse {
             stats: Some(ProtoStats::from(&stats)),
@@ -148,10 +136,7 @@ impl MatcherService for MatcherServiceImpl {
     ) -> Result<Response<GetTradeHistoryResponse>, Status> {
         let req = request.into_inner();
 
-        let trades = self
-            .engine
-            .get_trade_history(&req.symbol)
-            .map_err(Status::not_found)?;
+        let trades = self.engine.get_trade_history(&req.symbol).map_err(Status::not_found)?;
 
         let trades_proto = trades.into_iter().map(ProtoTrade::from).collect();
 
@@ -169,8 +154,7 @@ impl MatcherService for MatcherServiceImpl {
 
         let listing_price = match req.listing_price {
             Some(p) => Some(
-                UDecimal::try_from(p)
-                    .map_err(|e| Status::invalid_argument(format!("Invalid listing price: {e}")))?,
+                UDecimal::try_from(p).map_err(|e| Status::invalid_argument(format!("Invalid listing price: {e}")))?,
             ),
             None => None,
         };

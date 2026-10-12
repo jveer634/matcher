@@ -23,9 +23,7 @@ impl std::str::FromStr for SyncPolicy {
         match s.trim().to_lowercase().as_str() {
             "always" => Ok(SyncPolicy::Always),
             "none" => Ok(SyncPolicy::None),
-            other => Err(format!(
-                "Invalid sync policy '{other}'. Expected 'always' or 'none'"
-            )),
+            other => Err(format!("Invalid sync policy '{other}'. Expected 'always' or 'none'")),
         }
     }
 }
@@ -216,12 +214,7 @@ impl WalWriter {
     /// Appends a `CancelOrder` record to the WAL.
     ///
     /// Returns the sequence number assigned to this record.
-    pub fn append_cancel_order(
-        &mut self,
-        order_id: &str,
-        user_id: &str,
-        timestamp_ns: u64,
-    ) -> Result<u64, String> {
+    pub fn append_cancel_order(&mut self, order_id: &str, user_id: &str, timestamp_ns: u64) -> Result<u64, String> {
         let seq = self.next_sequence;
         let frame_bytes = self.encoder.encode_cancel_order(order_id, user_id, seq, timestamp_ns)?;
 
@@ -240,9 +233,9 @@ impl WalWriter {
         timestamp_ns: u64,
     ) -> Result<u64, String> {
         let seq = self.next_sequence;
-        let frame_bytes =
-            self.encoder
-                .encode_snapshot_marker(snapshot_seq, open_orders_count, seq, timestamp_ns);
+        let frame_bytes = self
+            .encoder
+            .encode_snapshot_marker(snapshot_seq, open_orders_count, seq, timestamp_ns);
 
         self.write_frame(&frame_bytes)?;
         self.next_sequence += 1;

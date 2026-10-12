@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use matcher::orderbook::{OrderType, Side, UDecimal};
 use matcher::wal::{
-    decode_decimal, decode_fixed_str, decode_order_type, decode_side, SyncPolicy, WalPayload,
-    WalReadError, WalReader, WalWriter,
+    decode_decimal, decode_fixed_str, decode_order_type, decode_side, SyncPolicy, WalPayload, WalReadError, WalReader,
+    WalWriter,
 };
 use rust_decimal_macros::dec;
 
@@ -93,14 +93,8 @@ fn test_wal_writer_and_reader_roundtrip() {
         assert_eq!(decode_fixed_str(&sbe.user_id).unwrap(), "user-alice");
         assert_eq!(decode_side(sbe.side).unwrap(), Side::Buy);
         assert_eq!(decode_order_type(sbe.order_type).unwrap(), OrderType::Limit);
-        assert_eq!(
-            decode_decimal(sbe.price_mantissa, sbe.price_scale).unwrap(),
-            price
-        );
-        assert_eq!(
-            decode_decimal(sbe.qty_mantissa, sbe.qty_scale).unwrap(),
-            Some(qty)
-        );
+        assert_eq!(decode_decimal(sbe.price_mantissa, sbe.price_scale).unwrap(), price);
+        assert_eq!(decode_decimal(sbe.qty_mantissa, sbe.qty_scale).unwrap(), Some(qty));
     } else {
         panic!("Expected SubmitOrder payload");
     }
@@ -146,26 +140,10 @@ fn test_wal_open_or_create_resumption() {
     {
         let mut writer = WalWriter::create(&guard.path, SyncPolicy::None).unwrap();
         writer
-            .append_submit_order(
-                "ord-1",
-                "user-1",
-                Side::Buy,
-                OrderType::Market,
-                None,
-                qty,
-                100,
-            )
+            .append_submit_order("ord-1", "user-1", Side::Buy, OrderType::Market, None, qty, 100)
             .unwrap();
         writer
-            .append_submit_order(
-                "ord-2",
-                "user-2",
-                Side::Sell,
-                OrderType::Market,
-                None,
-                qty,
-                101,
-            )
+            .append_submit_order("ord-2", "user-2", Side::Sell, OrderType::Market, None, qty, 101)
             .unwrap();
         writer.flush().unwrap();
     }
@@ -176,15 +154,7 @@ fn test_wal_open_or_create_resumption() {
         assert_eq!(writer.next_sequence(), 3);
 
         let seq = writer
-            .append_submit_order(
-                "ord-3",
-                "user-3",
-                Side::Buy,
-                OrderType::Market,
-                None,
-                qty,
-                102,
-            )
+            .append_submit_order("ord-3", "user-3", Side::Buy, OrderType::Market, None, qty, 102)
             .unwrap();
         assert_eq!(seq, 3);
         writer.flush().unwrap();
@@ -364,8 +334,7 @@ impl Drop for TempDirGuard {
 #[test]
 fn test_wal_pruner_config_from_env() {
     use matcher::wal::{
-        DEFAULT_PRUNE_INTERVAL_SECS, ENV_PRUNE_INTERVAL_MINS, ENV_PRUNE_INTERVAL_SECS,
-        WalPrunerConfig,
+        WalPrunerConfig, DEFAULT_PRUNE_INTERVAL_SECS, ENV_PRUNE_INTERVAL_MINS, ENV_PRUNE_INTERVAL_SECS,
     };
     use std::time::Duration;
 
@@ -432,9 +401,7 @@ fn test_wal_pruner_obsolete_segments_and_snapshots() {
     std::fs::write(dir_guard.path.join("snapshot_0000000250.snap"), b"snap-250").unwrap();
 
     // Config: retain 2 snapshots
-    let pruner = WalPruner::new(
-        WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
-    );
+    let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2));
     let stats = pruner.prune_once().expect("prune_once");
 
     // Segments with max seq < 250 (100 and 200) should be pruned
@@ -459,9 +426,7 @@ async fn test_wal_pruner_background_spawn_and_stop() {
     use std::time::Duration;
 
     let dir_guard = TempDirGuard::new("bg_runner");
-    let pruner = WalPruner::new(
-        WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(20)),
-    );
+    let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(20)));
 
     let handle = pruner.spawn_background();
 
@@ -526,14 +491,8 @@ fn test_snapshot_roundtrip_empty_and_populated() {
     assert_eq!(loaded.symbol, "BTC-USDT");
     assert_eq!(loaded.sequence, 42);
     assert_eq!(loaded.timestamp_ns, 1_700_000_000_123_456_789);
-    assert_eq!(
-        loaded.last_traded_price,
-        Some(UDecimal::new(dec!(65150.00)).unwrap())
-    );
-    assert_eq!(
-        loaded.total_volume_traded,
-        UDecimal::new(dec!(125.75)).unwrap()
-    );
+    assert_eq!(loaded.last_traded_price, Some(UDecimal::new(dec!(65150.00)).unwrap()));
+    assert_eq!(loaded.total_volume_traded, UDecimal::new(dec!(125.75)).unwrap());
     assert_eq!(loaded.total_trades_count, 18);
     assert_eq!(loaded.open_orders.len(), 2);
 
@@ -585,9 +544,7 @@ fn test_snapshot_and_pruner_interoperability() {
 
     // Write 3 snapshots: sequences 100, 200, 300
     for seq in [100, 200, 300] {
-        let snap_path = dir_guard
-            .path
-            .join(SnapshotWriter::snapshot_filename("ETH-USDT", seq));
+        let snap_path = dir_guard.path.join(SnapshotWriter::snapshot_filename("ETH-USDT", seq));
         let snap = BookSnapshot {
             symbol: "ETH-USDT".into(),
             sequence: seq,
@@ -606,9 +563,7 @@ fn test_snapshot_and_pruner_interoperability() {
     std::fs::write(dir_guard.path.join("ETH-USDT_segment_0000000350.wal"), b"wal-350").unwrap();
 
     // Prune with retain_snapshots: 2
-    let pruner = WalPruner::new(
-        WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
-    );
+    let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2));
     let stats = pruner.prune_once().expect("prune_once");
 
     // Snapshots: seq 100 pruned, 200 and 300 retained
@@ -742,36 +697,22 @@ async fn test_sharded_engine_checkpoint_and_recovery() {
         // Verify BTC-USDT state:
         let btc_stats = recovered_engine.get_stats("BTC-USDT").expect("btc stats");
         assert_eq!(btc_stats.total_trades_count, 1);
-        assert_eq!(
-            btc_stats.total_volume_traded,
-            UDecimal::new(dec!(0.5)).unwrap()
-        );
+        assert_eq!(btc_stats.total_volume_traded, UDecimal::new(dec!(0.5)).unwrap());
         // Alice had 2.0, 0.5 was filled -> 1.5 remaining
-        assert_eq!(
-            btc_stats.active_sell_volume,
-            UDecimal::new(dec!(1.5)).unwrap()
-        );
+        assert_eq!(btc_stats.active_sell_volume, UDecimal::new(dec!(1.5)).unwrap());
         // Bob had 1.0 resting buy
-        assert_eq!(
-            btc_stats.active_buy_volume,
-            UDecimal::new(dec!(1.0)).unwrap()
-        );
+        assert_eq!(btc_stats.active_buy_volume, UDecimal::new(dec!(1.0)).unwrap());
 
         // Verify ETH-USDT state:
         let eth_stats = recovered_engine.get_stats("ETH-USDT").expect("eth stats");
         assert_eq!(eth_stats.total_trades_count, 1);
-        assert_eq!(
-            eth_stats.total_volume_traded,
-            UDecimal::new(dec!(5.0)).unwrap()
-        );
+        assert_eq!(eth_stats.total_volume_traded, UDecimal::new(dec!(5.0)).unwrap());
         // Remaining 5.0 was cancelled -> 0 active sell volume
         assert_eq!(eth_stats.active_sell_volume, UDecimal::ZERO);
         assert_eq!(eth_stats.active_buy_volume, UDecimal::ZERO);
 
         // Phase 3: Test Checkpoint + Prune on the recovered engine
-        let pruner = WalPruner::new(
-            WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
-        );
+        let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2));
         let prune_stats = recovered_engine
             .checkpoint_and_prune(&pruner)
             .await
@@ -809,9 +750,7 @@ async fn test_pruner_spawn_with_engine() {
         )
         .expect("submit order");
 
-    let pruner = WalPruner::new(
-        WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(25)),
-    );
+    let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(25)));
 
     let handle = pruner.spawn_with_engine(Arc::clone(&engine));
 
@@ -823,12 +762,7 @@ async fn test_pruner_spawn_with_engine() {
     let snap_exists = std::fs::read_dir(&dir_guard.path)
         .unwrap()
         .flatten()
-        .any(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("snap"))
-        });
+        .any(|e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("snap")));
 
     assert!(snap_exists, "Snapshot should be created by background task");
 }
-

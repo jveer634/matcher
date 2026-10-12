@@ -1,9 +1,13 @@
-use std::path::PathBuf;
 use clap::Parser;
+use std::path::PathBuf;
 
 /// Matcher: High-Performance In-Memory FIFO Trading Matching Engine CLI arguments.
 #[derive(Parser, Debug, Clone, PartialEq, Eq)]
-#[command(name = "matcher", version, about = "High-Performance In-Memory Matching Engine Microservice")]
+#[command(
+    name = "matcher",
+    version,
+    about = "High-Performance In-Memory Matching Engine Microservice"
+)]
 pub struct Cli {
     /// Path to custom configuration file (defaults to config.toml)
     #[arg(short, long, value_name = "FILE")]

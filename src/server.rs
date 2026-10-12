@@ -85,10 +85,16 @@ impl Server {
             })
             .await;
 
-        // Gracefully stop attached background pruner on shutdown
+        // 1. Gracefully stop attached background pruner on shutdown
         if let Some(handle) = self.pruner_handle.take() {
             println!("Stopping background WAL pruner task...");
             handle.stop().await;
+        }
+
+        // 2. Run parallel shutdown agents across all symbol shards (final snapshot checkpoint + WAL buffer flush)
+        println!("Executing parallel shutdown agents (final snapshot & WAL flush)...");
+        if let Err(err) = self.engine.shutdown_parallel(true).await {
+            eprintln!("Error during parallel shutdown agents: {err}");
         }
 
         println!("Matcher service stopped cleanly.");

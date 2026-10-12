@@ -228,7 +228,6 @@ impl SymbolConfig {
     }
 }
 
-
 /// Root application configuration for Matcher.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -252,7 +251,7 @@ impl Default for AppConfig {
             server: ServerConfig::default(),
             wal: WalConfig::default(),
             pruner: PrunerConfig::default(),
-            symbols: vec![]
+            symbols: vec![],
         }
     }
 }
@@ -327,9 +326,9 @@ impl AppConfig {
 
         // 4. Legacy / Direct environment variables for backward compatibility
         if let Ok(port) = std::env::var("PORT") {
-            let p: u16 = port.parse().map_err(|_| {
-                ConfigError::Validation(format!("Invalid PORT environment variable: '{port}'"))
-            })?;
+            let p: u16 = port
+                .parse()
+                .map_err(|_| ConfigError::Validation(format!("Invalid PORT environment variable: '{port}'")))?;
             builder = builder.set_override("server.port", p)?;
         }
         if let Ok(host) = std::env::var("HOST") {
@@ -400,10 +399,7 @@ mod tests {
 
         server.host = "127.0.0.1".to_string();
         assert!(server.validate().is_ok());
-        assert_eq!(
-            server.socket_addr().unwrap(),
-            "127.0.0.1:8080".parse().unwrap()
-        );
+        assert_eq!(server.socket_addr().unwrap(), "127.0.0.1:8080".parse().unwrap());
     }
 
     #[test]
@@ -419,7 +415,6 @@ mod tests {
     fn test_pruner_config_validation() {
         let mut pruner = PrunerConfig::default();
         assert!(pruner.validate().is_ok());
-
 
         pruner.interval_secs = 0;
         assert!(pruner.validate().is_err());

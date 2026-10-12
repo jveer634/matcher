@@ -1,10 +1,10 @@
 use crate::orderbook::{OrderType, Side, UDecimal};
 use crate::wal::crc32::crc32;
 use crate::wal::sbe::types::{
-    encode_decimal, encode_fixed_str, encode_order_type, encode_side, SbeHeader,
-    WalFrameHeader, CANCEL_ORDER_BLOCK_LENGTH, SBE_HEADER_SIZE, SBE_SCHEMA_VERSION_1,
-    SNAPSHOT_MARKER_BLOCK_LENGTH, SUBMIT_ORDER_V1_BLOCK_LENGTH, SUBMIT_ORDER_V2_BLOCK_LENGTH,
-    TEMPLATE_CANCEL_ORDER, TEMPLATE_SNAPSHOT_MARKER, TEMPLATE_SUBMIT_ORDER,
+    encode_decimal, encode_fixed_str, encode_order_type, encode_side, SbeHeader, WalFrameHeader,
+    CANCEL_ORDER_BLOCK_LENGTH, SBE_HEADER_SIZE, SBE_SCHEMA_VERSION_1, SNAPSHOT_MARKER_BLOCK_LENGTH,
+    SUBMIT_ORDER_V1_BLOCK_LENGTH, SUBMIT_ORDER_V2_BLOCK_LENGTH, TEMPLATE_CANCEL_ORDER, TEMPLATE_SNAPSHOT_MARKER,
+    TEMPLATE_SUBMIT_ORDER,
 };
 
 #[derive(Debug, Default)]
@@ -46,15 +46,15 @@ impl SbeEncoder {
         payload.extend_from_slice(&sbe_header.encode());
 
         // Body: 108 bytes
-        payload.extend_from_slice(&order_id_bytes);               // 0..32
-        payload.extend_from_slice(&user_id_bytes);                // 32..64
-        payload.push(side_byte);                                   // 64
-        payload.push(order_type_byte);                             // 65
-        payload.extend_from_slice(&[0u8; 2]);                      // 66..68 (padding)
-        payload.extend_from_slice(&price_mantissa.to_le_bytes());  // 68..84 (16 bytes i128)
-        payload.extend_from_slice(&price_scale.to_le_bytes());     // 84..88 (4 bytes u32)
-        payload.extend_from_slice(&qty_mantissa.to_le_bytes());    // 88..104 (16 bytes i128)
-        payload.extend_from_slice(&qty_scale.to_le_bytes());       // 104..108 (4 bytes u32)
+        payload.extend_from_slice(&order_id_bytes); // 0..32
+        payload.extend_from_slice(&user_id_bytes); // 32..64
+        payload.push(side_byte); // 64
+        payload.push(order_type_byte); // 65
+        payload.extend_from_slice(&[0u8; 2]); // 66..68 (padding)
+        payload.extend_from_slice(&price_mantissa.to_le_bytes()); // 68..84 (16 bytes i128)
+        payload.extend_from_slice(&price_scale.to_le_bytes()); // 84..88 (4 bytes u32)
+        payload.extend_from_slice(&qty_mantissa.to_le_bytes()); // 88..104 (16 bytes i128)
+        payload.extend_from_slice(&qty_scale.to_le_bytes()); // 104..108 (4 bytes u32)
 
         let checksum = crc32(&payload);
         let frame_len = u32::try_from(payload.len()).map_err(|e| e.to_string())?;
@@ -100,21 +100,21 @@ impl SbeEncoder {
         payload.extend_from_slice(&sbe_header.encode());
 
         // Body: 108 bytes (V1 fields)
-        payload.extend_from_slice(&order_id_bytes);               // 0..32
-        payload.extend_from_slice(&user_id_bytes);                // 32..64
-        payload.push(side_byte);                                   // 64
-        payload.push(order_type_byte);                             // 65
-        payload.extend_from_slice(&[0u8; 2]);                      // 66..68 (padding)
-        payload.extend_from_slice(&price_mantissa.to_le_bytes());  // 68..84 (16 bytes i128)
-        payload.extend_from_slice(&price_scale.to_le_bytes());     // 84..88 (4 bytes u32)
-        payload.extend_from_slice(&qty_mantissa.to_le_bytes());    // 88..104 (16 bytes i128)
-        payload.extend_from_slice(&qty_scale.to_le_bytes());       // 104..108 (4 bytes u32)
+        payload.extend_from_slice(&order_id_bytes); // 0..32
+        payload.extend_from_slice(&user_id_bytes); // 32..64
+        payload.push(side_byte); // 64
+        payload.push(order_type_byte); // 65
+        payload.extend_from_slice(&[0u8; 2]); // 66..68 (padding)
+        payload.extend_from_slice(&price_mantissa.to_le_bytes()); // 68..84 (16 bytes i128)
+        payload.extend_from_slice(&price_scale.to_le_bytes()); // 84..88 (4 bytes u32)
+        payload.extend_from_slice(&qty_mantissa.to_le_bytes()); // 88..104 (16 bytes i128)
+        payload.extend_from_slice(&qty_scale.to_le_bytes()); // 104..108 (4 bytes u32)
 
         // V2 Appended fields: 24 bytes (108..132)
-        payload.push(time_in_force);                               // 108
-        payload.extend_from_slice(&[0u8; 3]);                      // 109..112 (padding)
-        payload.extend_from_slice(&trigger_mantissa.to_le_bytes());// 112..128 (16 bytes i128)
-        payload.extend_from_slice(&trigger_scale.to_le_bytes());   // 128..132 (4 bytes u32)
+        payload.push(time_in_force); // 108
+        payload.extend_from_slice(&[0u8; 3]); // 109..112 (padding)
+        payload.extend_from_slice(&trigger_mantissa.to_le_bytes()); // 112..128 (16 bytes i128)
+        payload.extend_from_slice(&trigger_scale.to_le_bytes()); // 128..132 (4 bytes u32)
 
         let checksum = crc32(&payload);
         let frame_len = u32::try_from(payload.len()).map_err(|e| e.to_string())?;
@@ -138,11 +138,7 @@ impl SbeEncoder {
         let order_id_bytes = encode_fixed_str(order_id)?;
         let user_id_bytes = encode_fixed_str(user_id)?;
 
-        let sbe_header = SbeHeader::new(
-            CANCEL_ORDER_BLOCK_LENGTH,
-            TEMPLATE_CANCEL_ORDER,
-            SBE_SCHEMA_VERSION_1,
-        );
+        let sbe_header = SbeHeader::new(CANCEL_ORDER_BLOCK_LENGTH, TEMPLATE_CANCEL_ORDER, SBE_SCHEMA_VERSION_1);
 
         let mut payload = Vec::with_capacity(SBE_HEADER_SIZE + CANCEL_ORDER_BLOCK_LENGTH as usize);
         payload.extend_from_slice(&sbe_header.encode());

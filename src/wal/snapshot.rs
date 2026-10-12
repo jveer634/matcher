@@ -5,8 +5,8 @@ use std::path::Path;
 use crate::orderbook::{Order, UDecimal};
 use crate::wal::crc32::crc32;
 use crate::wal::sbe::types::{
-    decode_decimal, decode_fixed_str, decode_order_status, decode_order_type, decode_side,
-    encode_decimal, encode_fixed_str, encode_order_status, encode_order_type, encode_side,
+    decode_decimal, decode_fixed_str, decode_order_status, decode_order_type, decode_side, encode_decimal,
+    encode_fixed_str, encode_order_status, encode_order_type, encode_side,
 };
 
 /// 4-byte magic identifier for binary snapshot files: "MSNP" (Matcher Snapshot)
@@ -64,8 +64,7 @@ impl SnapshotWriter {
         // [8..12]: crc32 (u32)
         // [12..16]: payload_len (u32)
         let checksum = crc32(&payload);
-        let payload_len = u32::try_from(payload.len())
-            .map_err(|_| "Snapshot payload exceeds 4GB limit".to_string())?;
+        let payload_len = u32::try_from(payload.len()).map_err(|_| "Snapshot payload exceeds 4GB limit".to_string())?;
 
         let mut header = [0u8; SNAPSHOT_HEADER_SIZE];
         header[0..4].copy_from_slice(&SNAPSHOT_MAGIC);
@@ -170,8 +169,8 @@ impl SnapshotReader {
     /// Reads and verifies a [`BookSnapshot`] from the specified file path.
     pub fn read_snapshot(path: impl AsRef<Path>) -> Result<BookSnapshot, String> {
         let path = path.as_ref();
-        let mut file = File::open(path)
-            .map_err(|e| format!("Failed to open snapshot file '{}': {e}", path.display()))?;
+        let mut file =
+            File::open(path).map_err(|e| format!("Failed to open snapshot file '{}': {e}", path.display()))?;
 
         let mut header_buf = [0u8; SNAPSHOT_HEADER_SIZE];
         file.read_exact(&mut header_buf)
@@ -191,18 +190,8 @@ impl SnapshotReader {
             return Err(format!("Unsupported snapshot version: {version}"));
         }
 
-        let expected_crc = u32::from_le_bytes([
-            header_buf[8],
-            header_buf[9],
-            header_buf[10],
-            header_buf[11],
-        ]);
-        let payload_len = u32::from_le_bytes([
-            header_buf[12],
-            header_buf[13],
-            header_buf[14],
-            header_buf[15],
-        ]) as usize;
+        let expected_crc = u32::from_le_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
+        let payload_len = u32::from_le_bytes([header_buf[12], header_buf[13], header_buf[14], header_buf[15]]) as usize;
 
         let mut payload = vec![0u8; payload_len];
         file.read_exact(&mut payload)
@@ -241,8 +230,7 @@ impl SnapshotReader {
 
         let vol_mant = i128::from_le_bytes(buf[68..84].try_into().unwrap());
         let vol_scale = u32::from_le_bytes(buf[84..88].try_into().unwrap());
-        let total_volume_traded = decode_decimal(vol_mant, vol_scale)?
-            .unwrap_or(UDecimal::ZERO);
+        let total_volume_traded = decode_decimal(vol_mant, vol_scale)?.unwrap_or(UDecimal::ZERO);
 
         let total_trades_count = u64::from_le_bytes(buf[88..96].try_into().unwrap());
         let orders_count = usize::try_from(u64::from_le_bytes(buf[96..104].try_into().unwrap()))
@@ -280,13 +268,11 @@ impl SnapshotReader {
 
             let orig_mant = i128::from_le_bytes(record[88..104].try_into().unwrap());
             let orig_scale = u32::from_le_bytes(record[104..108].try_into().unwrap());
-            let original_quantity = decode_decimal(orig_mant, orig_scale)?
-                .unwrap_or(UDecimal::ZERO);
+            let original_quantity = decode_decimal(orig_mant, orig_scale)?.unwrap_or(UDecimal::ZERO);
 
             let rem_mant = i128::from_le_bytes(record[108..124].try_into().unwrap());
             let rem_scale = u32::from_le_bytes(record[124..128].try_into().unwrap());
-            let remaining_quantity = decode_decimal(rem_mant, rem_scale)?
-                .unwrap_or(UDecimal::ZERO);
+            let remaining_quantity = decode_decimal(rem_mant, rem_scale)?.unwrap_or(UDecimal::ZERO);
 
             let timestamp = i64::from_le_bytes(record[128..136].try_into().unwrap());
 

@@ -14,27 +14,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = AppConfig::load_with_path(cli.config.as_deref())?;
     if let Some(port) = cli.port {
         config.server.port = port;
-        config
-            .server
-            .validate()
-            .map_err(matcher::ConfigError::Validation)?;
+        config.server.validate().map_err(matcher::ConfigError::Validation)?;
     }
 
     // 2. Initialize ShardedEngine (matching engine) with WAL persistence
-    let engine = Arc::new(ShardedEngine::with_wal(
-        &config.wal.dir,
-        config.wal.sync_policy,
-    ));
+    let engine = Arc::new(ShardedEngine::with_wal(&config.wal.dir, config.wal.sync_policy));
 
-    // Register configured symbol shards (replays existing WAL / snapshot state if present)
+    // Run parallel recovery agents across all configured symbol shards (replays snapshots + delta WAL)
+    let mut symbol_specs = Vec::with_capacity(config.symbols.len());
     for sym_cfg in &config.symbols {
         let initial_price = sym_cfg
             .initial_udecimal_price()
             .map_err(|e| format!("Invalid initial price for {}: {e}", sym_cfg.symbol))?;
-        engine
-            .register_symbol(&sym_cfg.symbol, initial_price)
-            .map_err(|e| format!("Failed to register {} shard: {e}", sym_cfg.symbol))?;
+        symbol_specs.push((sym_cfg.symbol.clone(), initial_price));
     }
+
+    engine
+        .register_symbols_parallel(symbol_specs)
+        .await
+        .map_err(|e| format!("Parallel symbol recovery failed: {e}"))?;
 
     // 3. Initialize WAL Pruner service
     let pruner_config = config.pruner.to_wal_pruner_config(&config.wal.dir);

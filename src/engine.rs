@@ -61,11 +61,7 @@ impl ShardedEngine {
     }
 
     /// Register a new symbol shard
-    pub fn register_symbol(
-        &self,
-        symbol: &str,
-        listing_price: Option<UDecimal>,
-    ) -> Result<(), String> {
+    pub fn register_symbol(&self, symbol: &str, listing_price: Option<UDecimal>) -> Result<(), String> {
         let mut shards = self.shards.write().map_err(|e| e.to_string())?;
         if shards.contains_key(symbol) {
             return Err(format!("Symbol shard '{symbol}' already registered"));
@@ -83,12 +79,77 @@ impl ShardedEngine {
         Ok(())
     }
 
+    /// Recovers and registers multiple symbol shards concurrently in parallel tasks.
+    ///
+    /// For each symbol shard:
+    /// - Discovers and loads the latest on-disk binary snapshot if available.
+    /// - Streams and replays delta WAL records after the snapshot checkpoint.
+    /// - Opens or resumes the append-only WAL writer for future operations.
+    ///
+    /// Executes all recovery agents concurrently using asynchronous blocking tasks.
+    pub async fn register_symbols_parallel(
+        &self,
+        symbol_specs: Vec<(String, Option<UDecimal>)>,
+    ) -> Result<usize, String> {
+        if symbol_specs.is_empty() {
+            return Ok(0);
+        }
+
+        // Verify no duplicate symbols in the input list
+        let mut seen = std::collections::HashSet::new();
+        for (sym, _) in &symbol_specs {
+            if !seen.insert(sym) {
+                return Err(format!("Duplicate symbol '{sym}' provided to parallel recovery"));
+            }
+        }
+
+        // Ensure none of the symbols are already registered
+        {
+            let current = self.shards.read().map_err(|e| e.to_string())?;
+            for (sym, _) in &symbol_specs {
+                if current.contains_key(sym) {
+                    return Err(format!("Symbol shard '{sym}' already registered"));
+                }
+            }
+        }
+
+        let mut tasks = Vec::with_capacity(symbol_specs.len());
+        for (symbol, listing_price) in symbol_specs {
+            let wal_dir = self.wal_dir.clone();
+            let sync_policy = self.sync_policy;
+
+            tasks.push(tokio::task::spawn_blocking(move || {
+                let matcher = match (&wal_dir, sync_policy) {
+                    (Some(dir), Some(policy)) => {
+                        let wal_path = dir.join(format!("{symbol}.wal"));
+                        Matcher::with_wal(symbol.clone(), listing_price, wal_path, policy)?
+                    }
+                    _ => Matcher::new(symbol.clone(), listing_price),
+                };
+                Ok::<(String, Matcher), String>((symbol, matcher))
+            }));
+        }
+
+        let mut recovered = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            let (sym, matcher) = task
+                .await
+                .map_err(|join_err| format!("Recovery agent panicked: {join_err}"))??;
+            recovered.push((sym, matcher));
+        }
+
+        let count = recovered.len();
+        let mut shards = self.shards.write().map_err(|e| e.to_string())?;
+        for (sym, matcher) in recovered {
+            shards.insert(sym, Arc::new(RwLock::new(matcher)));
+        }
+
+        Ok(count)
+    }
+
     /// Check if a symbol is registered
     pub fn has_symbol(&self, symbol: &str) -> bool {
-        self.shards
-            .read()
-            .map(|s| s.contains_key(symbol))
-            .unwrap_or(false)
+        self.shards.read().map(|s| s.contains_key(symbol)).unwrap_or(false)
     }
 
     /// Get list of all registered symbols
@@ -125,12 +186,7 @@ impl ShardedEngine {
     }
 
     /// Cancel an order in the dedicated symbol shard
-    pub fn cancel_order(
-        &self,
-        symbol: &str,
-        order_id: &str,
-        user_id: &str,
-    ) -> Result<Order, String> {
+    pub fn cancel_order(&self, symbol: &str, order_id: &str, user_id: &str) -> Result<Order, String> {
         let shard = self.get_shard(symbol)?;
         let mut matcher = shard.write().map_err(|e| e.to_string())?;
         matcher.cancel_order(order_id, user_id)
@@ -144,11 +200,7 @@ impl ShardedEngine {
     }
 
     /// Get order depth for a given symbol
-    pub fn get_depth(
-        &self,
-        symbol: &str,
-        limit: usize,
-    ) -> Result<(Vec<BookLevel>, Vec<BookLevel>), String> {
+    pub fn get_depth(&self, symbol: &str, limit: usize) -> Result<(Vec<BookLevel>, Vec<BookLevel>), String> {
         let shard = self.get_shard(symbol)?;
         let matcher = shard.read().map_err(|e| e.to_string())?;
         Ok(matcher.get_depth(limit))
@@ -223,13 +275,62 @@ impl ShardedEngine {
     /// 1. Concurrently writes snapshots for all shards.
     /// 2. Runs the WAL pruner to reclaim obsolete segments and old snapshots.
     pub async fn checkpoint_and_prune(&self, pruner: &WalPruner) -> Result<PruneStats, String> {
-        let base_dir = self
-            .wal_dir
-            .as_deref()
-            .unwrap_or_else(|| &pruner.config().base_dir);
+        let base_dir = self.wal_dir.as_deref().unwrap_or_else(|| &pruner.config().base_dir);
 
         let _ = self.create_snapshots(base_dir).await?;
         pruner.prune_once()
+    }
+
+    /// Executes parallel shutdown agents across all active symbol shards:
+    /// 1. Concurrently writes snapshots for all symbol shards in parallel tasks (if `create_final_snapshot` is true).
+    /// 2. Concurrently flushes all shard WAL writer buffers to disk in parallel tasks.
+    pub async fn shutdown_parallel(&self, create_final_snapshot: bool) -> Result<(), String> {
+        let shards: Vec<(String, Arc<RwLock<Matcher>>)> = {
+            let map = self.shards.read().map_err(|e| e.to_string())?;
+            map.iter().map(|(k, v)| (k.clone(), Arc::clone(v))).collect()
+        };
+
+        if shards.is_empty() {
+            return Ok(());
+        }
+
+        // 1. Parallel final snapshot write across all shards if requested
+        if create_final_snapshot {
+            if let Some(dir) = &self.wal_dir {
+                let _ = self.create_snapshots(dir).await?;
+            }
+        }
+
+        // 2. Parallel WAL writer buffer flush across all shards
+        let mut flush_tasks = Vec::with_capacity(shards.len());
+        for (symbol, shard) in shards {
+            flush_tasks.push(tokio::task::spawn_blocking(move || {
+                let mut matcher = shard.write().map_err(|e| e.to_string())?;
+                matcher
+                    .flush_wal()
+                    .map_err(|e| format!("Failed to flush WAL for {symbol}: {e}"))?;
+                Ok::<(), String>(())
+            }));
+        }
+
+        for task in flush_tasks {
+            task.await
+                .map_err(|join_err| format!("Shutdown flush agent panicked: {join_err}"))??;
+        }
+
+        Ok(())
+    }
+
+    /// Flushes the Write-Ahead Log writer buffers for all registered symbol shards.
+    pub fn flush_all(&self) -> Result<(), String> {
+        let shards = self.shards.read().map_err(|e| e.to_string())?;
+        for (symbol, shard) in shards.iter() {
+            let mut matcher = shard.write().map_err(|e| e.to_string())?;
+            matcher
+                .flush_wal()
+                .map_err(|e| format!("Failed to flush WAL for {symbol}: {e}"))?;
+        }
+        Ok(())
     }
 }
 
@@ -348,17 +449,82 @@ mod tests {
         let eth_stats = engine.get_stats("ETH-USDT").unwrap();
         let sol_stats = engine.get_stats("SOL-USDT").unwrap();
 
-        assert_eq!(
-            btc_stats.total_volume_traded,
-            UDecimal::new(dec!(1.0)).unwrap()
-        );
-        assert_eq!(
-            eth_stats.total_volume_traded,
-            UDecimal::new(dec!(5.0)).unwrap()
-        );
-        assert_eq!(
-            sol_stats.total_volume_traded,
-            UDecimal::new(dec!(40.0)).unwrap()
-        );
+        assert_eq!(btc_stats.total_volume_traded, UDecimal::new(dec!(1.0)).unwrap());
+        assert_eq!(eth_stats.total_volume_traded, UDecimal::new(dec!(5.0)).unwrap());
+        assert_eq!(sol_stats.total_volume_traded, UDecimal::new(dec!(40.0)).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_parallel_recovery_and_shutdown_agents() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "parallel_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Initial run: parallel register 3 symbols and place orders
+        let engine = Arc::new(ShardedEngine::with_wal(&temp_dir, SyncPolicy::Always));
+        let specs = vec![
+            ("BTC-USDT".to_string(), Some(UDecimal::new(dec!(65000.0)).unwrap())),
+            ("ETH-USDT".to_string(), Some(UDecimal::new(dec!(3500.0)).unwrap())),
+            ("SOL-USDT".to_string(), Some(UDecimal::new(dec!(150.0)).unwrap())),
+        ];
+
+        let count = engine.register_symbols_parallel(specs.clone()).await.unwrap();
+        assert_eq!(count, 3);
+
+        // Place resting limit orders on all 3 shards
+        engine
+            .submit_order(
+                "btc-1".into(),
+                "user-1".into(),
+                "BTC-USDT",
+                Side::Sell,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(65100.0)).unwrap()),
+                UDecimal::new(dec!(2.0)).unwrap(),
+            )
+            .unwrap();
+        engine
+            .submit_order(
+                "eth-1".into(),
+                "user-2".into(),
+                "ETH-USDT",
+                Side::Buy,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(3500.0)).unwrap()),
+                UDecimal::new(dec!(10.0)).unwrap(),
+            )
+            .unwrap();
+        engine
+            .submit_order(
+                "sol-1".into(),
+                "user-3".into(),
+                "SOL-USDT",
+                Side::Sell,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(150.0)).unwrap()),
+                UDecimal::new(dec!(50.0)).unwrap(),
+            )
+            .unwrap();
+
+        // 2. Parallel shutdown: concurrently snapshots & flushes all shard WALs
+        engine.shutdown_parallel(true).await.unwrap();
+
+        // 3. New engine instance: test parallel recovery agents restoring all 3 shards concurrently
+        let recovered_engine = Arc::new(ShardedEngine::with_wal(&temp_dir, SyncPolicy::Always));
+        let recovered_count = recovered_engine.register_symbols_parallel(specs).await.unwrap();
+        assert_eq!(recovered_count, 3);
+
+        // Verify open orders were recovered across all shards
+        assert!(recovered_engine.get_order("BTC-USDT", "btc-1").unwrap().is_some());
+        assert!(recovered_engine.get_order("ETH-USDT", "eth-1").unwrap().is_some());
+        assert!(recovered_engine.get_order("SOL-USDT", "sol-1").unwrap().is_some());
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

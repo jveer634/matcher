@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::orderbook::{BookLevel, Order, OrderBook, OrderType, Side, Trade, UDecimal};
 use crate::wal::{
-    decode_decimal, decode_fixed_str, decode_order_type, decode_side, BookSnapshot,
-    SnapshotReader, SyncPolicy, WalPayload, WalReader, WalWriter,
+    decode_decimal, decode_fixed_str, decode_order_type, decode_side, BookSnapshot, SnapshotReader, SyncPolicy,
+    WalPayload, WalReader, WalWriter,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,12 +114,9 @@ impl Matcher {
                         let side = decode_side(sbe.side)?;
                         let order_type = decode_order_type(sbe.order_type)?;
                         let price = decode_decimal(sbe.price_mantissa, sbe.price_scale)?;
-                        let quantity = decode_decimal(sbe.qty_mantissa, sbe.qty_scale)?
-                            .unwrap_or(UDecimal::ZERO);
+                        let quantity = decode_decimal(sbe.qty_mantissa, sbe.qty_scale)?.unwrap_or(UDecimal::ZERO);
 
-                        if let Ok(trades) =
-                            orderbook.add_order(id, user_id, side, order_type, price, quantity)
-                        {
+                        if let Ok(trades) = orderbook.add_order(id, user_id, side, order_type, price, quantity) {
                             total_trades_count += trades.len();
                             for trade in trades {
                                 total_volume_traded += trade.quantity;
@@ -179,11 +176,7 @@ impl Matcher {
     }
 
     /// Emits a `SnapshotMarker` to the WAL stream recording the checkpoint sequence.
-    pub fn emit_snapshot_marker(
-        &mut self,
-        snapshot_seq: u64,
-        open_orders_count: u64,
-    ) -> Result<Option<u64>, String> {
+    pub fn emit_snapshot_marker(&mut self, snapshot_seq: u64, open_orders_count: u64) -> Result<Option<u64>, String> {
         if let Some(writer) = &mut self.wal_writer {
             let timestamp_ns = u64::try_from(
                 std::time::SystemTime::now()
@@ -228,21 +221,13 @@ impl Matcher {
 
         // 1. Write-Ahead Log append
         if let Some(writer) = &mut self.wal_writer {
-            writer.append_submit_order(
-                &id,
-                &user_id,
-                side,
-                order_type,
-                price,
-                quantity,
-                timestamp_ns,
-            )?;
+            writer.append_submit_order(&id, &user_id, side, order_type, price, quantity, timestamp_ns)?;
         }
 
         // 2. In-Memory matching execution
-        let trades =
-            self.orderbook
-                .add_order(id.clone(), user_id, side, order_type, price, quantity)?;
+        let trades = self
+            .orderbook
+            .add_order(id.clone(), user_id, side, order_type, price, quantity)?;
 
         self.total_trades_count += trades.len();
         for trade in &trades {
@@ -250,21 +235,14 @@ impl Matcher {
             self.trade_history.push(trade.clone());
         }
 
-        Ok(MatchResult {
-            order_id: id,
-            trades,
-        })
+        Ok(MatchResult { order_id: id, trades })
     }
 
     /// Cancels an order on the hot path.
     ///
     /// When persistence is enabled, the cancellation is written to the Write-Ahead Log **before**
     /// modifying the order book state.
-    pub fn cancel_order(
-        &mut self,
-        order_id: &str,
-        user_id: &str,
-    ) -> Result<Order, String> {
+    pub fn cancel_order(&mut self, order_id: &str, user_id: &str) -> Result<Order, String> {
         let timestamp_ns = u64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -339,10 +317,7 @@ mod tests {
 
     #[test]
     pub fn test_single_symbol_matcher() {
-        let mut matcher = Matcher::new(
-            "BTC-USDT".to_string(),
-            Some(UDecimal::new(dec!(65000.0)).unwrap()),
-        );
+        let mut matcher = Matcher::new("BTC-USDT".to_string(), Some(UDecimal::new(dec!(65000.0)).unwrap()));
         assert_eq!(matcher.symbol(), "BTC-USDT");
 
         // Submit limit sell
@@ -372,10 +347,7 @@ mod tests {
             .expect("place limit buy");
         assert_eq!(buy_res.trades.len(), 1);
         assert_eq!(buy_res.order_id, "ord-buy-1");
-        assert_eq!(
-            buy_res.trades[0].quantity,
-            UDecimal::new(dec!(1.5)).unwrap()
-        );
+        assert_eq!(buy_res.trades[0].quantity, UDecimal::new(dec!(1.5)).unwrap());
         assert_eq!(buy_res.trades[0].maker_order_id, "ord-sell-1");
         assert_eq!(buy_res.trades[0].taker_order_id, "ord-buy-1");
         assert_eq!(buy_res.trades[0].symbol, "BTC-USDT");
