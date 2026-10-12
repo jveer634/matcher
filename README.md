@@ -137,6 +137,41 @@ eth_handle.join().unwrap();
 
 ---
 
+## Write-Ahead Log (WAL) & Durability
+
+Matcher features an ultra-low-latency persistence and recovery system built around **Simple Binary Encoding (SBE)**, **zero-lock parallel snapshotting**, and **per-symbol isolated logs**:
+
+- **Write-Ahead Invariant**: Order submissions and cancellations are persisted to SBE binary frames with IEEE 802.3 CRC-32 integrity checks **before** modifying the in-memory book.
+- **Zero-Lock Snapshots**: Shard read locks are acquired for mere microseconds to clone resting orders in memory; binary snapshot file encoding, CRC-32 calculations, and fsync take place asynchronously on background worker threads.
+- **Automated Checkpointer & Pruner**: A background task periodically (default: 10 minutes) takes parallel snapshots across all shards and purges obsolete historical WAL segments while keeping the 2 newest snapshots for safe rollback.
+- **Per-Symbol Isolation**: Every symbol shard maintains its own WAL file (e.g. `BTC-USDT.wal`) and snapshots (`BTC-USDT_snapshot_0000000500.snap`), eliminating cross-shard lock contention and I/O bottlenecks.
+
+### Persistent Engine Initialization
+```rust
+use matcher::{ShardedEngine, wal::SyncPolicy};
+use std::path::PathBuf;
+
+// Initialize sharded engine backed by WAL in data/wal/
+let wal_dir = PathBuf::from("data/wal");
+let engine = ShardedEngine::with_wal(&wal_dir, SyncPolicy::None);
+
+// Shard registration automatically discovers snapshots and replays delta WAL logs!
+engine.register_symbol("BTC-USDT", None).unwrap();
+```
+
+### Environment Configuration
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `WAL_DIR` | `data/wal` | Base storage directory for WAL segments and snapshots. |
+| `WAL_SYNC_POLICY` | `none` | Durability mode: `always` (`fdatasync` per write) or `none` (OS page cache buffered). |
+| `WAL_PRUNE_INTERVAL_SECS` | `600` | Background snapshot creation and log pruning interval (default 10m). |
+
+For comprehensive architecture details, binary specifications, and evolution guides, see:
+- 📖 [WAL Architecture & Durability Documentation](./docs/wal/README.md)
+- 📖 [Extending Versions & SBE Schema Evolution Guide](./docs/wal/extending_versions.md)
+
+---
+
 ## gRPC & Protobuf Service
 
 The matching engine exposes a high-performance **gRPC interface** powered by `tonic` and `prost`, managed with the **Buf CLI**.

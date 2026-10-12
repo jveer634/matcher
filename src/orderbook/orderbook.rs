@@ -286,6 +286,59 @@ impl OrderBook {
 
         (bids, asks)
     }
+
+    /// Returns a list of all currently resting open orders in deterministic Price-Time order.
+    #[must_use]
+    pub fn open_orders(&self) -> Vec<Order> {
+        let mut orders = Vec::with_capacity(self.order_index.len());
+        // Bids: highest price first, then FIFO queue order
+        for queue in self.buy_orders.values().rev() {
+            orders.extend(queue.iter().cloned());
+        }
+        // Asks: lowest price first, then FIFO queue order
+        for queue in self.sell_orders.values() {
+            orders.extend(queue.iter().cloned());
+        }
+        orders
+    }
+
+    /// Restores a batch of non-crossing open orders from a snapshot into the order book queues.
+    pub fn restore_open_orders(&mut self, orders: Vec<Order>) {
+        for order in orders {
+            let price = order.price();
+            let side = order.side();
+            let rem_qty = order.quantity();
+
+            if rem_qty.is_positive() {
+                match side {
+                    Side::Buy => {
+                        if let Some(p) = price {
+                            self.buy_volume += rem_qty;
+                            self.buy_orders
+                                .entry(p)
+                                .or_default()
+                                .push_back(order.clone());
+                        }
+                    }
+                    Side::Sell => {
+                        if let Some(p) = price {
+                            self.sell_volume += rem_qty;
+                            self.sell_orders
+                                .entry(p)
+                                .or_default()
+                                .push_back(order.clone());
+                        }
+                    }
+                }
+                self.order_index.insert(order.id().to_string(), order);
+            }
+        }
+    }
+
+    /// Sets or updates the last traded price.
+    pub fn set_last_traded_price(&mut self, price: Option<UDecimal>) {
+        self.last_traded_price = price;
+    }
 }
 
 #[cfg(test)]
