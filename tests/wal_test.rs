@@ -337,3 +337,137 @@ fn test_wal_sync_policy_always() {
     let record = reader.next_record().unwrap().expect("record must exist");
     assert_eq!(record.sequence, 1);
 }
+
+struct TempDirGuard {
+    path: PathBuf,
+}
+
+impl TempDirGuard {
+    fn new(test_name: &str) -> Self {
+        let mut path = std::env::temp_dir();
+        let unique_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("matcher_wal_dir_{test_name}_{unique_id}"));
+        std::fs::create_dir_all(&path).unwrap();
+        Self { path }
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[test]
+fn test_wal_pruner_config_from_env() {
+    use matcher::wal::{
+        DEFAULT_PRUNE_INTERVAL_SECS, ENV_PRUNE_INTERVAL_MINS, ENV_PRUNE_INTERVAL_SECS,
+        WalPrunerConfig,
+    };
+    use std::time::Duration;
+
+    let dir = PathBuf::from("/tmp/wal_test");
+
+    // 1. Default (no env set) -> 10 minutes (600 seconds)
+    std::env::remove_var(ENV_PRUNE_INTERVAL_MINS);
+    std::env::remove_var(ENV_PRUNE_INTERVAL_SECS);
+    let cfg = WalPrunerConfig::from_env(&dir);
+    assert_eq!(cfg.interval, Duration::from_secs(DEFAULT_PRUNE_INTERVAL_SECS));
+    assert_eq!(cfg.interval, Duration::from_secs(600));
+
+    // 2. Set interval in minutes
+    std::env::set_var(ENV_PRUNE_INTERVAL_MINS, "5");
+    let cfg_mins = WalPrunerConfig::from_env(&dir);
+    assert_eq!(cfg_mins.interval, Duration::from_secs(300));
+
+    // 3. Set interval in seconds (takes precedence)
+    std::env::set_var(ENV_PRUNE_INTERVAL_SECS, "45");
+    let cfg_secs = WalPrunerConfig::from_env(&dir);
+    assert_eq!(cfg_secs.interval, Duration::from_secs(45));
+
+    // Clean up
+    std::env::remove_var(ENV_PRUNE_INTERVAL_MINS);
+    std::env::remove_var(ENV_PRUNE_INTERVAL_SECS);
+}
+
+#[test]
+fn test_wal_pruner_safety_no_prune_without_snapshot() {
+    use matcher::wal::{WalPruner, WalPrunerConfig};
+
+    let dir_guard = TempDirGuard::new("no_snapshot");
+
+    // Create 3 WAL segment dummy files without any snapshot
+    std::fs::write(dir_guard.path.join("segment_0000000010.wal"), b"dummy-frame-1").unwrap();
+    std::fs::write(dir_guard.path.join("segment_0000000020.wal"), b"dummy-frame-2").unwrap();
+    std::fs::write(dir_guard.path.join("segment_0000000030.wal"), b"dummy-frame-3").unwrap();
+
+    let pruner = WalPruner::new(WalPrunerConfig::from_env(&dir_guard.path));
+    let stats = pruner.prune_once().expect("prune_once");
+
+    // Invariant: without a snapshot, no WAL segments should ever be pruned
+    assert_eq!(stats.segments_pruned, 0);
+    assert_eq!(stats.snapshots_pruned, 0);
+    assert!(dir_guard.path.join("segment_0000000010.wal").exists());
+    assert!(dir_guard.path.join("segment_0000000020.wal").exists());
+    assert!(dir_guard.path.join("segment_0000000030.wal").exists());
+}
+
+#[test]
+fn test_wal_pruner_obsolete_segments_and_snapshots() {
+    use matcher::wal::{WalPruner, WalPrunerConfig};
+
+    let dir_guard = TempDirGuard::new("obsolete_pruning");
+
+    // Write segments with sequences 100, 200, 300
+    std::fs::write(dir_guard.path.join("segment_0000000100.wal"), b"wal-100").unwrap();
+    std::fs::write(dir_guard.path.join("segment_0000000200.wal"), b"wal-200").unwrap();
+    std::fs::write(dir_guard.path.join("segment_0000000300.wal"), b"wal-300").unwrap();
+
+    // Write snapshots at 50, 150, 250
+    std::fs::write(dir_guard.path.join("snapshot_0000000050.snap"), b"snap-50").unwrap();
+    std::fs::write(dir_guard.path.join("snapshot_0000000150.snap"), b"snap-150").unwrap();
+    std::fs::write(dir_guard.path.join("snapshot_0000000250.snap"), b"snap-250").unwrap();
+
+    // Config: retain 2 snapshots
+    let pruner = WalPruner::new(
+        WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
+    );
+    let stats = pruner.prune_once().expect("prune_once");
+
+    // Segments with max seq < 250 (100 and 200) should be pruned
+    assert_eq!(stats.segments_pruned, 2);
+    // Snapshots: 50 should be pruned, 150 and 250 kept
+    assert_eq!(stats.snapshots_pruned, 1);
+    assert!(stats.bytes_freed > 0);
+
+    // Verify disk state
+    assert!(!dir_guard.path.join("segment_0000000100.wal").exists());
+    assert!(!dir_guard.path.join("segment_0000000200.wal").exists());
+    assert!(dir_guard.path.join("segment_0000000300.wal").exists()); // Active segment kept!
+
+    assert!(!dir_guard.path.join("snapshot_0000000050.snap").exists());
+    assert!(dir_guard.path.join("snapshot_0000000150.snap").exists());
+    assert!(dir_guard.path.join("snapshot_0000000250.snap").exists());
+}
+
+#[tokio::test]
+async fn test_wal_pruner_background_spawn_and_stop() {
+    use matcher::wal::{WalPruner, WalPrunerConfig};
+    use std::time::Duration;
+
+    let dir_guard = TempDirGuard::new("bg_runner");
+    let pruner = WalPruner::new(
+        WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(20)),
+    );
+
+    let handle = pruner.spawn_background();
+
+    // Allow background task to initialize
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Gracefully stop the task
+    handle.stop().await;
+}
