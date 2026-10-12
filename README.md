@@ -62,6 +62,7 @@ This codebase uses **per-symbol isolation**:
 
 ### Prerequisites
 - Rust 1.70+ (`cargo`)
+- [Buf CLI](https://buf.build/docs/installation) (`buf`) for Protobuf code generation and schema linting
 
 ### Build & Run
 ```bash
