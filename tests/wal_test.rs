@@ -471,3 +471,156 @@ async fn test_wal_pruner_background_spawn_and_stop() {
     // Gracefully stop the task
     handle.stop().await;
 }
+
+#[test]
+fn test_snapshot_roundtrip_empty_and_populated() {
+    use matcher::orderbook::{Order, OrderStatus, OrderType, Side, UDecimal};
+    use matcher::wal::{BookSnapshot, SnapshotReader, SnapshotWriter};
+    use rust_decimal_macros::dec;
+
+    let dir_guard = TempDirGuard::new("snapshot_roundtrip");
+    let snap_path = dir_guard.path.join(SnapshotWriter::snapshot_filename("BTC-USDT", 42));
+
+    let o1 = Order::reconstruct(
+        "ord-101".into(),
+        "user-alice".into(),
+        "BTC-USDT".into(),
+        Side::Buy,
+        OrderType::Limit,
+        UDecimal::new(dec!(2.5)).unwrap(),
+        UDecimal::new(dec!(5.0)).unwrap(),
+        Some(UDecimal::new(dec!(65100.50)).unwrap()),
+        OrderStatus::PartiallyExecuted,
+        1_700_000_100_000,
+    );
+
+    let o2 = Order::reconstruct(
+        "ord-102".into(),
+        "user-bob".into(),
+        "BTC-USDT".into(),
+        Side::Sell,
+        OrderType::Limit,
+        UDecimal::new(dec!(1.0)).unwrap(),
+        UDecimal::new(dec!(1.0)).unwrap(),
+        Some(UDecimal::new(dec!(65200.00)).unwrap()),
+        OrderStatus::Open,
+        1_700_000_200_000,
+    );
+
+    let snapshot = BookSnapshot {
+        symbol: "BTC-USDT".into(),
+        sequence: 42,
+        timestamp_ns: 1_700_000_000_123_456_789,
+        last_traded_price: Some(UDecimal::new(dec!(65150.00)).unwrap()),
+        total_volume_traded: UDecimal::new(dec!(125.75)).unwrap(),
+        total_trades_count: 18,
+        open_orders: vec![o1, o2],
+    };
+
+    // 1. Write snapshot atomically
+    SnapshotWriter::write_snapshot(&snap_path, &snapshot).expect("write snapshot");
+    assert!(snap_path.exists());
+
+    // 2. Read back and verify
+    let loaded = SnapshotReader::read_snapshot(&snap_path).expect("read snapshot");
+    assert_eq!(loaded.symbol, "BTC-USDT");
+    assert_eq!(loaded.sequence, 42);
+    assert_eq!(loaded.timestamp_ns, 1_700_000_000_123_456_789);
+    assert_eq!(
+        loaded.last_traded_price,
+        Some(UDecimal::new(dec!(65150.00)).unwrap())
+    );
+    assert_eq!(
+        loaded.total_volume_traded,
+        UDecimal::new(dec!(125.75)).unwrap()
+    );
+    assert_eq!(loaded.total_trades_count, 18);
+    assert_eq!(loaded.open_orders.len(), 2);
+
+    // Verify reconstructed orders directly
+    assert_eq!(loaded.open_orders[0].id(), "ord-101");
+    assert_eq!(loaded.open_orders[0].quantity(), UDecimal::new(dec!(2.5)).unwrap());
+    assert_eq!(loaded.open_orders[0].remaining(), UDecimal::new(dec!(5.0)).unwrap());
+    assert_eq!(loaded.open_orders[0].status(), OrderStatus::PartiallyExecuted);
+
+    assert_eq!(loaded.open_orders[1].id(), "ord-102");
+    assert_eq!(loaded.open_orders[1].quantity(), UDecimal::new(dec!(1.0)).unwrap());
+    assert_eq!(loaded.open_orders[1].status(), OrderStatus::Open);
+}
+
+#[test]
+fn test_snapshot_crc_corruption_rejection() {
+    use matcher::wal::{BookSnapshot, SnapshotReader, SnapshotWriter};
+
+    let dir_guard = TempDirGuard::new("snap_corrupt");
+    let snap_path = dir_guard.path.join(SnapshotWriter::snapshot_filename("SOL-USDT", 1));
+
+    let snapshot = BookSnapshot {
+        symbol: "SOL-USDT".into(),
+        sequence: 1,
+        timestamp_ns: 100,
+        last_traded_price: None,
+        total_volume_traded: matcher::orderbook::UDecimal::ZERO,
+        total_trades_count: 0,
+        open_orders: Vec::new(),
+    };
+
+    SnapshotWriter::write_snapshot(&snap_path, &snapshot).expect("write snapshot");
+
+    // Corrupt a byte in the payload
+    let mut bytes = std::fs::read(&snap_path).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xFF;
+    std::fs::write(&snap_path, &bytes).unwrap();
+
+    let err = SnapshotReader::read_snapshot(&snap_path).expect_err("must fail CRC check");
+    assert!(err.contains("Snapshot CRC32 mismatch"));
+}
+
+#[test]
+fn test_snapshot_and_pruner_interoperability() {
+    use matcher::wal::{BookSnapshot, SnapshotWriter, WalPruner, WalPrunerConfig};
+
+    let dir_guard = TempDirGuard::new("snap_pruner_interop");
+
+    // Write 3 snapshots: sequences 100, 200, 300
+    for seq in [100, 200, 300] {
+        let snap_path = dir_guard
+            .path
+            .join(SnapshotWriter::snapshot_filename("ETH-USDT", seq));
+        let snap = BookSnapshot {
+            symbol: "ETH-USDT".into(),
+            sequence: seq,
+            timestamp_ns: 1_000 + seq,
+            last_traded_price: None,
+            total_volume_traded: matcher::orderbook::UDecimal::ZERO,
+            total_trades_count: 0,
+            open_orders: Vec::new(),
+        };
+        SnapshotWriter::write_snapshot(&snap_path, &snap).unwrap();
+    }
+
+    // Write segments with sequences 150, 250, 350
+    std::fs::write(dir_guard.path.join("ETH-USDT_segment_0000000150.wal"), b"wal-150").unwrap();
+    std::fs::write(dir_guard.path.join("ETH-USDT_segment_0000000250.wal"), b"wal-250").unwrap();
+    std::fs::write(dir_guard.path.join("ETH-USDT_segment_0000000350.wal"), b"wal-350").unwrap();
+
+    // Prune with retain_snapshots: 2
+    let pruner = WalPruner::new(
+        WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
+    );
+    let stats = pruner.prune_once().expect("prune_once");
+
+    // Snapshots: seq 100 pruned, 200 and 300 retained
+    assert_eq!(stats.snapshots_pruned, 1);
+    // WAL Segments: 150 and 250 (< 300) pruned, 350 (active) retained
+    assert_eq!(stats.segments_pruned, 2);
+
+    assert!(!dir_guard.path.join("ETH-USDT_snapshot_0000000100.snap").exists());
+    assert!(dir_guard.path.join("ETH-USDT_snapshot_0000000200.snap").exists());
+    assert!(dir_guard.path.join("ETH-USDT_snapshot_0000000300.snap").exists());
+
+    assert!(!dir_guard.path.join("ETH-USDT_segment_0000000150.wal").exists());
+    assert!(!dir_guard.path.join("ETH-USDT_segment_0000000250.wal").exists());
+    assert!(dir_guard.path.join("ETH-USDT_segment_0000000350.wal").exists());
+}

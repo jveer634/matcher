@@ -1,4 +1,4 @@
-use crate::orderbook::{OrderType, Side, UDecimal};
+use crate::orderbook::{OrderStatus, OrderType, Side, UDecimal};
 use rust_decimal::Decimal;
 
 pub const SBE_SCHEMA_ID: u16 = 1;
@@ -247,5 +247,25 @@ pub fn decode_order_type(val: u8) -> Result<OrderType, String> {
         1 => Ok(OrderType::Limit),
         2 => Ok(OrderType::Market),
         _ => Err(format!("Invalid SBE OrderType discriminant: {val}")),
+    }
+}
+
+#[must_use]
+pub fn encode_order_status(status: OrderStatus) -> u8 {
+    match status {
+        OrderStatus::Open => 1,
+        OrderStatus::PartiallyExecuted => 2,
+        OrderStatus::Executed => 3,
+        OrderStatus::Cancelled => 4,
+    }
+}
+
+pub fn decode_order_status(val: u8) -> Result<OrderStatus, String> {
+    match val {
+        1 => Ok(OrderStatus::Open),
+        2 => Ok(OrderStatus::PartiallyExecuted),
+        3 => Ok(OrderStatus::Executed),
+        4 => Ok(OrderStatus::Cancelled),
+        _ => Err(format!("Invalid SBE OrderStatus discriminant: {val}")),
     }
 }

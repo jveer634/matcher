@@ -4,7 +4,7 @@ pub use super::types::{OrderStatus, OrderType, Side};
 use super::udecimal::UDecimal;
 
 /// Core Order structure representing a participant's order in the engine.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Order {
     id: String,
     user_id: String,
@@ -136,6 +136,35 @@ impl Order {
 
     pub fn timestamp(&self) -> i64 {
         self.timestamp
+    }
+
+    /// Reconstructs an existing Order from snapshot storage without re-validating as a brand new order.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn reconstruct(
+        id: String,
+        user_id: String,
+        symbol: String,
+        side: Side,
+        order_type: OrderType,
+        quantity: UDecimal,
+        remaining: UDecimal,
+        price: Option<UDecimal>,
+        status: OrderStatus,
+        timestamp: i64,
+    ) -> Self {
+        Self {
+            id,
+            user_id,
+            symbol,
+            side,
+            order_type,
+            quantity,
+            remaining,
+            price,
+            status,
+            timestamp,
+        }
     }
 }
 
