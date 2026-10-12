@@ -81,7 +81,7 @@ impl SbeDecoder {
         })
     }
 
-    /// Decodes Version 1 of SubmitOrderSbe (108 bytes fixed payload)
+    /// Decodes Version 1 of `SubmitOrderSbe` (108 bytes fixed payload)
     pub fn decode_submit_order_v1(&self, body: &[u8]) -> Result<SubmitOrderSbe, String> {
         if body.len() < SUBMIT_ORDER_V1_BLOCK_LENGTH as usize {
             return Err(format!(
@@ -132,7 +132,7 @@ impl SbeDecoder {
         })
     }
 
-    /// Decodes Version 2 of SubmitOrderSbe (132 bytes fixed payload with appended conditional fields)
+    /// Decodes Version 2 of `SubmitOrderSbe` (132 bytes fixed payload with appended conditional fields)
     pub fn decode_submit_order_v2(&self, body: &[u8]) -> Result<SubmitOrderSbe, String> {
         if body.len() < SUBMIT_ORDER_V2_BLOCK_LENGTH as usize {
             return Err(format!(
@@ -162,7 +162,7 @@ impl SbeDecoder {
         Ok(base_v1)
     }
 
-    /// Decodes Version 1 of CancelOrderSbe (64 bytes payload)
+    /// Decodes Version 1 of `CancelOrderSbe` (64 bytes payload)
     pub fn decode_cancel_order_v1(&self, body: &[u8]) -> Result<CancelOrderSbe, String> {
         if body.len() < CANCEL_ORDER_BLOCK_LENGTH as usize {
             return Err(format!(
@@ -181,7 +181,7 @@ impl SbeDecoder {
         Ok(CancelOrderSbe { order_id, user_id })
     }
 
-    /// Decodes Version 1 of SnapshotMarkerSbe (16 bytes payload)
+    /// Decodes Version 1 of `SnapshotMarkerSbe` (16 bytes payload)
     pub fn decode_snapshot_marker_v1(&self, body: &[u8]) -> Result<SnapshotMarkerSbe, String> {
         if body.len() < SNAPSHOT_MARKER_BLOCK_LENGTH as usize {
             return Err(format!(
