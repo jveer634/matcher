@@ -624,3 +624,211 @@ fn test_snapshot_and_pruner_interoperability() {
     assert!(!dir_guard.path.join("ETH-USDT_segment_0000000250.wal").exists());
     assert!(dir_guard.path.join("ETH-USDT_segment_0000000350.wal").exists());
 }
+
+#[tokio::test]
+async fn test_sharded_engine_checkpoint_and_recovery() {
+    use matcher::orderbook::{OrderType, Side, UDecimal};
+    use matcher::wal::{SyncPolicy, WalPruner, WalPrunerConfig};
+    use matcher::ShardedEngine;
+    use rust_decimal_macros::dec;
+
+    let dir_guard = TempDirGuard::new("engine_snap_recovery");
+
+    // Phase 1: Run Engine with WAL persistence, submit orders, and snapshot
+    {
+        let engine = ShardedEngine::with_wal(&dir_guard.path, SyncPolicy::None);
+        engine
+            .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(60000.0)).unwrap()))
+            .expect("register BTC");
+        engine
+            .register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3000.0)).unwrap()))
+            .expect("register ETH");
+
+        // 1. Submit initial resting orders
+        engine
+            .submit_order(
+                "btc-sell-1".into(),
+                "alice".into(),
+                "BTC-USDT",
+                Side::Sell,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(60000.0)).unwrap()),
+                UDecimal::new(dec!(2.0)).unwrap(),
+            )
+            .expect("btc sell");
+
+        engine
+            .submit_order(
+                "btc-buy-1".into(),
+                "bob".into(),
+                "BTC-USDT",
+                Side::Buy,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(59000.0)).unwrap()),
+                UDecimal::new(dec!(1.0)).unwrap(),
+            )
+            .expect("btc buy");
+
+        // ETH execution: sell 10, buy 5 -> 5 matched, 5 resting
+        engine
+            .submit_order(
+                "eth-sell-1".into(),
+                "carol".into(),
+                "ETH-USDT",
+                Side::Sell,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(3000.0)).unwrap()),
+                UDecimal::new(dec!(10.0)).unwrap(),
+            )
+            .expect("eth sell");
+
+        let eth_match = engine
+            .submit_order(
+                "eth-buy-1".into(),
+                "dave".into(),
+                "ETH-USDT",
+                Side::Buy,
+                OrderType::Limit,
+                Some(UDecimal::new(dec!(3000.0)).unwrap()),
+                UDecimal::new(dec!(5.0)).unwrap(),
+            )
+            .expect("eth buy");
+        assert_eq!(eth_match.trades.len(), 1);
+
+        // 2. Parallel snapshot creation across both shards
+        let snap_count = engine
+            .create_snapshots(&dir_guard.path)
+            .await
+            .expect("create snapshots");
+        assert_eq!(snap_count, 2);
+
+        // 3. Post-snapshot delta orders (to verify replay on top of snapshot)
+        // BTC: market buy 0.5 against alice's 60000 ask
+        let btc_delta_match = engine
+            .submit_order(
+                "btc-buy-2".into(),
+                "charlie".into(),
+                "BTC-USDT",
+                Side::Buy,
+                OrderType::Market,
+                None,
+                UDecimal::new(dec!(0.5)).unwrap(),
+            )
+            .expect("btc market buy");
+        assert_eq!(btc_delta_match.trades.len(), 1);
+
+        // ETH: cancel carol's remaining 5.0 sell order
+        engine
+            .cancel_order("ETH-USDT", "eth-sell-1", "carol")
+            .expect("cancel eth-sell-1");
+
+        // Flush wal buffers
+        let btc_shard = engine.get_shard("BTC-USDT").unwrap();
+        btc_shard.write().unwrap().flush_wal().unwrap();
+        let eth_shard = engine.get_shard("ETH-USDT").unwrap();
+        eth_shard.write().unwrap().flush_wal().unwrap();
+    }
+
+    // Phase 2: Create a fresh ShardedEngine instance and recover state from disk
+    {
+        let recovered_engine = ShardedEngine::with_wal(&dir_guard.path, SyncPolicy::None);
+        recovered_engine
+            .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(60000.0)).unwrap()))
+            .expect("recover BTC");
+        recovered_engine
+            .register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3000.0)).unwrap()))
+            .expect("recover ETH");
+
+        // Verify BTC-USDT state:
+        let btc_stats = recovered_engine.get_stats("BTC-USDT").expect("btc stats");
+        assert_eq!(btc_stats.total_trades_count, 1);
+        assert_eq!(
+            btc_stats.total_volume_traded,
+            UDecimal::new(dec!(0.5)).unwrap()
+        );
+        // Alice had 2.0, 0.5 was filled -> 1.5 remaining
+        assert_eq!(
+            btc_stats.active_sell_volume,
+            UDecimal::new(dec!(1.5)).unwrap()
+        );
+        // Bob had 1.0 resting buy
+        assert_eq!(
+            btc_stats.active_buy_volume,
+            UDecimal::new(dec!(1.0)).unwrap()
+        );
+
+        // Verify ETH-USDT state:
+        let eth_stats = recovered_engine.get_stats("ETH-USDT").expect("eth stats");
+        assert_eq!(eth_stats.total_trades_count, 1);
+        assert_eq!(
+            eth_stats.total_volume_traded,
+            UDecimal::new(dec!(5.0)).unwrap()
+        );
+        // Remaining 5.0 was cancelled -> 0 active sell volume
+        assert_eq!(eth_stats.active_sell_volume, UDecimal::ZERO);
+        assert_eq!(eth_stats.active_buy_volume, UDecimal::ZERO);
+
+        // Phase 3: Test Checkpoint + Prune on the recovered engine
+        let pruner = WalPruner::new(
+            WalPrunerConfig::from_env(&dir_guard.path).with_retain_snapshots(2),
+        );
+        let prune_stats = recovered_engine
+            .checkpoint_and_prune(&pruner)
+            .await
+            .expect("checkpoint and prune");
+        // Checkpoint created a second snapshot for each symbol
+        assert_eq!(prune_stats.snapshots_pruned, 0);
+    }
+}
+
+#[tokio::test]
+async fn test_pruner_spawn_with_engine() {
+    use matcher::orderbook::{OrderType, Side, UDecimal};
+    use matcher::wal::{SyncPolicy, WalPruner, WalPrunerConfig};
+    use matcher::ShardedEngine;
+    use rust_decimal_macros::dec;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let dir_guard = TempDirGuard::new("spawn_with_engine");
+
+    let engine = Arc::new(ShardedEngine::with_wal(&dir_guard.path, SyncPolicy::None));
+    engine
+        .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(65000.0)).unwrap()))
+        .expect("register BTC");
+
+    engine
+        .submit_order(
+            "btc-ord-1".into(),
+            "trader-1".into(),
+            "BTC-USDT",
+            Side::Buy,
+            OrderType::Limit,
+            Some(UDecimal::new(dec!(64000.0)).unwrap()),
+            UDecimal::new(dec!(1.0)).unwrap(),
+        )
+        .expect("submit order");
+
+    let pruner = WalPruner::new(
+        WalPrunerConfig::from_env(&dir_guard.path).with_interval(Duration::from_millis(25)),
+    );
+
+    let handle = pruner.spawn_with_engine(Arc::clone(&engine));
+
+    // Wait for at least one checkpoint tick to fire
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    handle.stop().await;
+
+    // Check that at least one snapshot file was written
+    let snap_exists = std::fs::read_dir(&dir_guard.path)
+        .unwrap()
+        .flatten()
+        .any(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("snap"))
+        });
+
+    assert!(snap_exists, "Snapshot should be created by background task");
+}
+

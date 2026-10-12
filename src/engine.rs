@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::matcher::{MatchResult, Matcher, MatcherStats};
 use crate::orderbook::{BookLevel, Order, OrderType, Side, Trade, UDecimal};
+use crate::wal::{PruneStats, SnapshotWriter, SyncPolicy, WalPruner};
 
 /// Command sent to a sharded symbol matcher
 #[derive(Debug, Clone)]
@@ -28,13 +30,34 @@ pub enum ShardCommand {
 #[derive(Debug, Default)]
 pub struct ShardedEngine {
     shards: RwLock<HashMap<String, Arc<RwLock<Matcher>>>>,
+    wal_dir: Option<PathBuf>,
+    sync_policy: Option<SyncPolicy>,
 }
 
 impl ShardedEngine {
+    /// Creates a purely in-memory sharded matching engine without WAL persistence.
+    #[must_use]
     pub fn new() -> Self {
         ShardedEngine {
             shards: RwLock::new(HashMap::new()),
+            wal_dir: None,
+            sync_policy: None,
         }
+    }
+
+    /// Creates a persistent sharded matching engine backed by Write-Ahead Logs stored in `wal_dir`.
+    pub fn with_wal(wal_dir: impl AsRef<Path>, sync_policy: SyncPolicy) -> Self {
+        ShardedEngine {
+            shards: RwLock::new(HashMap::new()),
+            wal_dir: Some(wal_dir.as_ref().to_path_buf()),
+            sync_policy: Some(sync_policy),
+        }
+    }
+
+    /// Base directory where WAL logs are stored, if persistence is enabled.
+    #[must_use]
+    pub fn wal_dir(&self) -> Option<&Path> {
+        self.wal_dir.as_deref()
     }
 
     /// Register a new symbol shard
@@ -45,10 +68,17 @@ impl ShardedEngine {
     ) -> Result<(), String> {
         let mut shards = self.shards.write().map_err(|e| e.to_string())?;
         if shards.contains_key(symbol) {
-            return Err(format!("Symbol shard '{}' already registered", symbol));
+            return Err(format!("Symbol shard '{symbol}' already registered"));
         }
 
-        let matcher = Matcher::new(symbol.to_string(), listing_price);
+        let matcher = match (&self.wal_dir, self.sync_policy) {
+            (Some(dir), Some(policy)) => {
+                let wal_path = dir.join(format!("{symbol}.wal"));
+                Matcher::with_wal(symbol.to_string(), listing_price, wal_path, policy)?
+            }
+            _ => Matcher::new(symbol.to_string(), listing_price),
+        };
+
         shards.insert(symbol.to_string(), Arc::new(RwLock::new(matcher)));
         Ok(())
     }
@@ -136,6 +166,70 @@ impl ShardedEngine {
         let shard = self.get_shard(symbol)?;
         let matcher = shard.read().map_err(|e| e.to_string())?;
         Ok(matcher.trade_history().to_vec())
+    }
+
+    /// Captures in-memory snapshots for all registered symbol shards,
+    /// releasing shard locks in microseconds, and persists binary snapshot files
+    /// to disk concurrently via asynchronous blocking tasks.
+    ///
+    /// Also emits a [`SnapshotMarker`](crate::wal::SnapshotMarkerSbe) to each shard's WAL stream recording the checkpoint.
+    pub async fn create_snapshots(&self, target_dir: impl AsRef<Path>) -> Result<usize, String> {
+        let target_dir = target_dir.as_ref().to_path_buf();
+        let shards: Vec<(String, Arc<RwLock<Matcher>>)> = {
+            let map = self.shards.read().map_err(|e| e.to_string())?;
+            map.iter().map(|(k, v)| (k.clone(), Arc::clone(v))).collect()
+        };
+
+        if shards.is_empty() {
+            return Ok(0);
+        }
+
+        // 1. Capture in-memory snapshots with microsecond lock duration
+        let mut snapshot_tasks = Vec::with_capacity(shards.len());
+
+        for (symbol, shard) in shards {
+            let (snapshot, snap_seq) = {
+                let mut matcher = shard.write().map_err(|e| e.to_string())?;
+                let snapshot = matcher.capture_snapshot();
+                let seq = snapshot.sequence;
+                let open_orders_count = snapshot.open_orders.len() as u64;
+                let _ = matcher.emit_snapshot_marker(seq, open_orders_count)?;
+                (snapshot, seq)
+            };
+
+            let out_dir = target_dir.clone();
+            snapshot_tasks.push(tokio::task::spawn_blocking(move || {
+                let snap_filename = SnapshotWriter::snapshot_filename(&symbol, snap_seq);
+                let snap_path = out_dir.join(snap_filename);
+                SnapshotWriter::write_snapshot(&snap_path, &snapshot)?;
+                Ok::<(), String>(())
+            }));
+        }
+
+        // 2. Await all disk writes concurrently
+        let mut created_count = 0;
+        for task in snapshot_tasks {
+            match task.await {
+                Ok(Ok(())) => created_count += 1,
+                Ok(Err(e)) => return Err(e),
+                Err(join_err) => return Err(format!("Snapshot task panicked: {join_err}")),
+            }
+        }
+
+        Ok(created_count)
+    }
+
+    /// Executes a full checkpoint and pruning cycle:
+    /// 1. Concurrently writes snapshots for all shards.
+    /// 2. Runs the WAL pruner to reclaim obsolete segments and old snapshots.
+    pub async fn checkpoint_and_prune(&self, pruner: &WalPruner) -> Result<PruneStats, String> {
+        let base_dir = self
+            .wal_dir
+            .as_deref()
+            .unwrap_or_else(|| &pruner.config().base_dir);
+
+        let _ = self.create_snapshots(base_dir).await?;
+        pruner.prune_once()
     }
 }
 

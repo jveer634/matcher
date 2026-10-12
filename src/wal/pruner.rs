@@ -1,9 +1,12 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::engine::ShardedEngine;
 use crate::wal::reader::WalReader;
 
 /// Default background pruning interval: 10 minutes.
@@ -141,14 +144,17 @@ impl WalPruner {
     }
 
     /// Prunes WAL segments and snapshots inside a specific directory.
+    ///
+    /// Preserves per-symbol isolation: snapshots and WAL segments are grouped by symbol
+    /// so that snapshot retention and pruning of one symbol never affects another.
     pub fn prune_directory(&self, dir: &Path) -> Result<PruneStats, String> {
         let mut stats = PruneStats::default();
         if !dir.exists() {
             return Ok(stats);
         }
 
-        let mut snapshots: Vec<LogFileEntry> = Vec::new();
-        let mut wal_segments: Vec<LogFileEntry> = Vec::new();
+        let mut symbol_snapshots: HashMap<String, Vec<LogFileEntry>> = HashMap::new();
+        let mut symbol_wal_segments: HashMap<String, Vec<LogFileEntry>> = HashMap::new();
 
         let entries = fs::read_dir(dir)
             .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
@@ -164,25 +170,25 @@ impl WalPruner {
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
 
-            let metadata = match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(_) => continue,
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
             };
             let size_bytes = metadata.len();
 
+            let (symbol, maybe_seq) = Self::extract_symbol_and_sequence(file_name);
+
             if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("snap")) {
-                if let Some(seq) = Self::extract_sequence(file_name) {
-                    snapshots.push(LogFileEntry {
+                if let Some(seq) = maybe_seq {
+                    symbol_snapshots.entry(symbol).or_default().push(LogFileEntry {
                         path,
                         sequence: seq,
                         size_bytes,
                     });
                 }
             } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("wal")) {
-                // Determine sequence from filename or fallback to reading last frame
-                let seq = Self::extract_sequence(file_name).or_else(|| Self::read_max_sequence(&path));
+                let seq = maybe_seq.or_else(|| Self::read_max_sequence(&path));
                 if let Some(seq) = seq {
-                    wal_segments.push(LogFileEntry {
+                    symbol_wal_segments.entry(symbol).or_default().push(LogFileEntry {
                         path,
                         sequence: seq,
                         size_bytes,
@@ -191,43 +197,53 @@ impl WalPruner {
             }
         }
 
-        // Sort both by sequence ascending
-        snapshots.sort_by_key(|e| e.sequence);
-        wal_segments.sort_by_key(|e| e.sequence);
+        let all_symbols: HashSet<String> = symbol_snapshots
+            .keys()
+            .chain(symbol_wal_segments.keys())
+            .cloned()
+            .collect();
 
-        // 1. Process Snapshots: keep the newest `retain_snapshots`, delete older ones
-        let latest_snapshot_seq = snapshots.last().map(|s| s.sequence);
+        for symbol in all_symbols {
+            let mut snapshots = symbol_snapshots.remove(&symbol).unwrap_or_default();
+            let mut wal_segments = symbol_wal_segments.remove(&symbol).unwrap_or_default();
 
-        if snapshots.len() > self.config.retain_snapshots {
-            let to_delete_count = snapshots.len() - self.config.retain_snapshots;
-            for snap in snapshots.iter().take(to_delete_count) {
-                if fs::remove_file(&snap.path).is_ok() {
-                    stats.snapshots_pruned += 1;
-                    stats.bytes_freed += snap.size_bytes;
+            snapshots.sort_by_key(|e| e.sequence);
+            wal_segments.sort_by_key(|e| e.sequence);
+
+            // 1. Process Snapshots for this symbol: keep the newest `retain_snapshots`, delete older ones
+            let latest_snapshot_seq = snapshots.last().map(|s| s.sequence);
+
+            if snapshots.len() > self.config.retain_snapshots {
+                let to_delete_count = snapshots.len() - self.config.retain_snapshots;
+                for snap in snapshots.iter().take(to_delete_count) {
+                    if fs::remove_file(&snap.path).is_ok() {
+                        stats.snapshots_pruned += 1;
+                        stats.bytes_freed += snap.size_bytes;
+                    }
                 }
             }
-        }
 
-        // 2. Process WAL Segments:
-        // Safety check: if no snapshot exists, never delete any WAL segments!
-        let Some(checkpoint_seq) = latest_snapshot_seq else {
-            return Ok(stats);
-        };
-
-        // The highest-sequence segment is considered the active segment and is never deleted
-        let active_segment_path = wal_segments.last().map(|s| &s.path);
-
-        for segment in &wal_segments {
-            // Never prune the active segment
-            if Some(&segment.path) == active_segment_path {
+            // 2. Process WAL Segments for this symbol:
+            // Safety check: if no snapshot exists for this symbol, never delete any WAL segments!
+            let Some(checkpoint_seq) = latest_snapshot_seq else {
                 continue;
-            }
+            };
 
-            // If this segment's highest sequence is strictly before the snapshot checkpoint,
-            // all its state is already safely incorporated into the snapshot and can be pruned.
-            if segment.sequence < checkpoint_seq && fs::remove_file(&segment.path).is_ok() {
-                stats.segments_pruned += 1;
-                stats.bytes_freed += segment.size_bytes;
+            // The highest-sequence segment is considered the active segment and is never deleted
+            let active_segment_path = wal_segments.last().map(|s| &s.path);
+
+            for segment in &wal_segments {
+                // Never prune the active segment
+                if Some(&segment.path) == active_segment_path {
+                    continue;
+                }
+
+                // If this segment's highest sequence is strictly before the snapshot checkpoint,
+                // all its state is already safely incorporated into the snapshot and can be pruned.
+                if segment.sequence < checkpoint_seq && fs::remove_file(&segment.path).is_ok() {
+                    stats.segments_pruned += 1;
+                    stats.bytes_freed += segment.size_bytes;
+                }
             }
         }
 
@@ -267,21 +283,86 @@ impl WalPruner {
         }
     }
 
-    /// Extracts an embedded numeric sequence number from a filename.
+    /// Spawns the background checkpointer and pruner task attached to a [`ShardedEngine`].
+    ///
+    /// On each periodic interval:
+    /// 1. Concurrently snapshots all active symbol shards.
+    /// 2. Prunes obsolete historical WAL segments and excess snapshots.
+    #[must_use]
+    pub fn spawn_with_engine(self, engine: Arc<ShardedEngine>) -> PrunerHandle {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let interval_duration = self.config.interval;
+
+        let join_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval_duration);
+            // The first tick fires immediately; we skip it to wait the initial interval
+            interval.tick().await;
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(err) = engine.checkpoint_and_prune(&self).await {
+                            eprintln!("WAL Checkpoint and Pruning error: {err}");
+                        }
+                    }
+                    _ = shutdown_rx.changed() => {
+                        if *shutdown_rx.borrow() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        PrunerHandle {
+            shutdown_tx,
+            join_handle,
+        }
+    }
+
+    /// Extracts an embedded symbol name and numeric sequence number from a filename.
     ///
     /// Examples:
-    /// - `segment_0000000042.wal` -> `Some(42)`
-    /// - `snapshot_1000.snap` -> `Some(1000)`
-    /// - `BTC-USDT_00500.wal` -> `Some(500)`
-    fn extract_sequence(filename: &str) -> Option<u64> {
-        let stem = filename.split('.').next()?;
-        // Scan for digits sequence from parts separated by '_' or '-'
-        for part in stem.split(['_', '-']) {
-            if let Ok(seq) = part.parse::<u64>() {
-                return Some(seq);
+    /// - `BTC-USDT_snapshot_0000000500.snap` -> `("BTC-USDT", Some(500))`
+    /// - `ETH-USDT_segment_0000000150.wal` -> `("ETH-USDT", Some(150))`
+    /// - `BTC-USDT.wal` -> `("BTC-USDT", None)`
+    /// - `segment_0000000042.wal` -> `("", Some(42))`
+    /// - `snapshot_1000.snap` -> `("", Some(1000))`
+    pub fn extract_symbol_and_sequence(filename: &str) -> (String, Option<u64>) {
+        let stem = filename.split('.').next().unwrap_or(filename);
+
+        if let Some((sym, rest)) = stem.split_once("_snapshot_") {
+            let seq = rest.parse::<u64>().ok();
+            return (sym.to_string(), seq);
+        }
+
+        if let Some((sym, rest)) = stem.split_once("_segment_") {
+            let seq = rest.parse::<u64>().ok();
+            return (sym.to_string(), seq);
+        }
+
+        if let Some((prefix, suffix)) = stem.rsplit_once('_') {
+            if let Ok(seq) = suffix.parse::<u64>() {
+                let normalized_sym = if prefix == "segment" || prefix == "snapshot" {
+                    ""
+                } else {
+                    prefix
+                };
+                return (normalized_sym.to_string(), Some(seq));
             }
         }
-        None
+
+        if let Ok(seq) = stem.parse::<u64>() {
+            return (String::new(), Some(seq));
+        }
+
+        (stem.to_string(), None)
+    }
+
+    /// Extracts an embedded numeric sequence number from a filename.
+    #[must_use]
+    pub fn extract_sequence(filename: &str) -> Option<u64> {
+        Self::extract_symbol_and_sequence(filename).1
     }
 
     /// Fallback reader that inspects the highest sequence number inside a WAL file.
