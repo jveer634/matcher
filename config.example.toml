@@ -1,0 +1,36 @@
+# ==============================================================================
+# Matcher Matching Engine - Configuration Template
+# ==============================================================================
+
+[server]
+# Host address to bind the gRPC server to (e.g. "0.0.0.0" or "127.0.0.1")
+host = "0.0.0.0"
+# TCP port for the gRPC service
+port = 50051
+
+[wal]
+# Root directory for Write-Ahead Log (WAL) segments and snapshots
+dir = "data/wal"
+# Durability sync policy:
+# - "none"   : Buffered OS page cache writes (ultra high throughput)
+# - "always" : Calls fsync after every append for zero-data-loss durability
+sync_policy = "none"
+
+[pruner]
+# Periodic checkpointer & pruner interval in seconds (default: 600s = 10m)
+interval_secs = 600
+# Number of newest snapshot files to retain per symbol shard (default: 2)
+retain_snapshots = 2
+
+# Initial symbol shards registered on startup
+[[symbols]]
+symbol = "BTC-USDT"
+initial_price = "65000.0"
+
+[[symbols]]
+symbol = "ETH-USDT"
+initial_price = "3500.0"
+
+[[symbols]]
+symbol = "SOL-USDT"
+initial_price = "150.0"

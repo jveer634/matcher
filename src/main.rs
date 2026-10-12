@@ -1,77 +1,69 @@
-use std::env;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use matcher::grpc::{MatcherServiceImpl, MatcherServiceServer};
-use matcher::wal::{SyncPolicy, WalPruner, WalPrunerConfig};
-use matcher::{OrderType, ShardedEngine, Side, UDecimal};
+use clap::Parser;
+use matcher::wal::WalPruner;
+use matcher::{AppConfig, Cli, OrderType, Server, ShardedEngine, Side, UDecimal};
 use rust_decimal_macros::dec;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
-    let is_demo = args.len() > 1 && (args[1] == "--demo" || args[1] == "-d");
+    let cli = Cli::parse();
 
-    // Configure WAL directory and sync policy
-    let wal_dir_str = env::var("WAL_DIR").unwrap_or_else(|_| "data/wal".to_string());
-    let wal_dir = PathBuf::from(wal_dir_str);
+    // 1. Load and validate application configuration
+    let mut config = AppConfig::load_with_path(cli.config.as_deref())?;
+    if let Some(port) = cli.port {
+        config.server.port = port;
+        config
+            .server
+            .validate()
+            .map_err(matcher::ConfigError::Validation)?;
+    }
 
-    let sync_policy = match env::var("WAL_SYNC_POLICY").unwrap_or_default().to_lowercase().as_str() {
-        "always" => SyncPolicy::Always,
-        _ => SyncPolicy::None,
-    };
+    // 2. Initialize ShardedEngine (matching engine) with WAL persistence
+    let engine = Arc::new(ShardedEngine::with_wal(
+        &config.wal.dir,
+        config.wal.sync_policy,
+    ));
 
-    // 1. Initialize ShardedEngine with WAL persistence enabled
-    let engine = Arc::new(ShardedEngine::with_wal(&wal_dir, sync_policy));
+    // Register configured symbol shards (replays existing WAL / snapshot state if present)
+    for sym_cfg in &config.symbols {
+        let initial_price = sym_cfg
+            .initial_udecimal_price()
+            .map_err(|e| format!("Invalid initial price for {}: {e}", sym_cfg.symbol))?;
+        engine
+            .register_symbol(&sym_cfg.symbol, initial_price)
+            .map_err(|e| format!("Failed to register {} shard: {e}", sym_cfg.symbol))?;
+    }
 
-    // Register initial default symbol shards (replays existing WAL / snapshot state if present)
-    engine
-        .register_symbol("BTC-USDT", Some(UDecimal::new(dec!(65000.0)).unwrap()))
-        .expect("Failed to register BTC-USDT shard");
-    engine
-        .register_symbol("ETH-USDT", Some(UDecimal::new(dec!(3500.0)).unwrap()))
-        .expect("Failed to register ETH-USDT shard");
-    engine
-        .register_symbol("SOL-USDT", Some(UDecimal::new(dec!(150.0)).unwrap()))
-        .expect("Failed to register SOL-USDT shard");
-
-    // 2. Initialize and spawn background WAL Checkpointer & Pruner (runs on configured ENV interval, default 10m)
-    let pruner_config = WalPrunerConfig::from_env(&wal_dir);
-    let pruner_interval = pruner_config.interval;
+    // 3. Initialize WAL Pruner service
+    let pruner_config = config.pruner.to_wal_pruner_config(&config.wal.dir);
     let pruner = WalPruner::new(pruner_config);
-    let _pruner_handle = pruner.spawn_with_engine(Arc::clone(&engine));
 
-    if is_demo {
-        run_demo(&engine);
+    // 4. Spawn background WAL checkpointer & pruner attached to engine
+    let pruner_handle = pruner.clone().spawn_with_engine(Arc::clone(&engine));
+
+    // 5. Initialize Server and attach all services
+    let addr: SocketAddr = config.server.socket_addr()?;
+    let server = Server::new(addr, engine, pruner, Some(pruner_handle));
+
+    if cli.demo {
+        run_demo(server.engine());
         return Ok(());
     }
 
-    let port = env::var("PORT").unwrap_or_else(|_| "50051".to_string());
-    let addr: SocketAddr = format!("0.0.0.0:{port}").parse()?;
-
-    println!("=======================================================");
-    println!("  Matcher High-Performance gRPC Service");
-    println!("=======================================================");
-    println!("  Listening on: http://{addr}");
-    println!("  Registered Symbol Shards: {:?}", engine.list_symbols());
-    println!("  WAL Directory: {}", wal_dir.display());
-    println!("  WAL Sync Policy: {sync_policy:?}");
-    println!("  WAL Pruner Interval: {pruner_interval:?}");
-    println!("  gRPC Service: engine.v1.MatcherService");
-    println!("=======================================================\n");
-
-    let service = MatcherServiceImpl::new(engine);
-
-    tonic::transport::Server::builder()
-        .add_service(MatcherServiceServer::new(service))
-        .serve(addr)
-        .await?;
+    // 6. Run the server
+    server.serve().await?;
 
     Ok(())
 }
 
 fn run_demo(engine: &ShardedEngine) {
+    let run_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
     println!("=======================================================");
     println!("  Running Matcher Sharded Execution Demo");
     println!("=======================================================");
@@ -81,7 +73,7 @@ fn run_demo(engine: &ShardedEngine) {
     println!("\n--- [BTC-USDT Shard] Placing resting limit orders ---");
     engine
         .submit_order(
-            "btc-ord-001".into(),
+            format!("btc-ord-{run_id}-001"),
             "user-trader-alice".into(),
             "BTC-USDT",
             Side::Sell,
@@ -92,7 +84,7 @@ fn run_demo(engine: &ShardedEngine) {
         .expect("Place limit sell");
     engine
         .submit_order(
-            "btc-ord-002".into(),
+            format!("btc-ord-{run_id}-002"),
             "user-trader-bob".into(),
             "BTC-USDT",
             Side::Buy,
@@ -108,7 +100,7 @@ fn run_demo(engine: &ShardedEngine) {
     println!("\n--- [BTC-USDT Shard] Crossing the book with market order ---");
     let match_res = engine
         .submit_order(
-            "btc-ord-003".into(),
+            format!("btc-ord-{run_id}-003"),
             "user-trader-charlie".into(),
             "BTC-USDT",
             Side::Buy,
@@ -129,7 +121,7 @@ fn run_demo(engine: &ShardedEngine) {
     println!("\n--- [ETH-USDT Shard] Placing and executing trades ---");
     engine
         .submit_order(
-            "eth-ord-001".into(),
+            format!("eth-ord-{run_id}-001"),
             "user-trader-dan".into(),
             "ETH-USDT",
             Side::Sell,
@@ -140,7 +132,7 @@ fn run_demo(engine: &ShardedEngine) {
         .expect("Place ETH sell");
     let eth_match = engine
         .submit_order(
-            "eth-ord-002".into(),
+            format!("eth-ord-{run_id}-002"),
             "user-trader-erin".into(),
             "ETH-USDT",
             Side::Buy,
