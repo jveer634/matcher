@@ -7,6 +7,8 @@
 host = "0.0.0.0"
 # TCP port for the gRPC service
 port = 50051
+# Enable verbose debug-level logging (true = DEBUG, false = INFO)
+is_debug = false
 
 [wal]
 # Root directory for Write-Ahead Log (WAL) segments and snapshots
