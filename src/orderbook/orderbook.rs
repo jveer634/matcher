@@ -116,8 +116,7 @@ impl OrderBook {
             if book_order.is_filled() {
                 self.order_index.remove(book_order.id());
             } else {
-                self.order_index
-                    .insert(book_order.id().to_string(), book_order.clone());
+                self.order_index.insert(book_order.id().to_string(), book_order.clone());
                 book_orders.push_front(book_order);
                 break;
             }
@@ -190,10 +189,7 @@ impl OrderBook {
             match order.side() {
                 Side::Buy => {
                     self.buy_volume += order.quantity();
-                    self.buy_orders
-                        .entry(limit_price)
-                        .or_default()
-                        .push_back(order.clone());
+                    self.buy_orders.entry(limit_price).or_default().push_back(order.clone());
                 }
                 Side::Sell => {
                     self.sell_volume += order.quantity();
@@ -314,19 +310,13 @@ impl OrderBook {
                     Side::Buy => {
                         if let Some(p) = price {
                             self.buy_volume += rem_qty;
-                            self.buy_orders
-                                .entry(p)
-                                .or_default()
-                                .push_back(order.clone());
+                            self.buy_orders.entry(p).or_default().push_back(order.clone());
                         }
                     }
                     Side::Sell => {
                         if let Some(p) = price {
                             self.sell_volume += rem_qty;
-                            self.sell_orders
-                                .entry(p)
-                                .or_default()
-                                .push_back(order.clone());
+                            self.sell_orders.entry(p).or_default().push_back(order.clone());
                         }
                     }
                 }
@@ -349,10 +339,7 @@ mod tests {
 
     #[test]
     pub fn test_add_and_cancel_limit_order() {
-        let mut book = OrderBook::new(
-            "ETH-USDT".to_string(),
-            Some(UDecimal::new(dec!(1000.0)).unwrap()),
-        );
+        let mut book = OrderBook::new("ETH-USDT".to_string(), Some(UDecimal::new(dec!(1000.0)).unwrap()));
 
         let trades = book
             .add_order(

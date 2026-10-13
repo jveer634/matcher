@@ -3,8 +3,8 @@ use tonic::Request;
 
 use matcher::gen::engine::v1::matcher_service_server::MatcherService;
 use matcher::gen::engine::v1::{
-    CancelOrderRequest, GetDepthRequest, GetStatsRequest, GetTradeHistoryRequest,
-    ListSymbolsRequest, RegisterSymbolRequest, SubmitOrderRequest,
+    CancelOrderRequest, GetDepthRequest, GetStatsRequest, GetTradeHistoryRequest, ListSymbolsRequest,
+    RegisterSymbolRequest, SubmitOrderRequest,
 };
 use matcher::gen::order::v1::{OrderStatus, OrderType, Side};
 use matcher::grpc::MatcherServiceImpl;
@@ -236,8 +236,5 @@ async fn test_grpc_validation_errors() {
         }))
         .await;
     assert!(zero_qty_res.is_err());
-    assert_eq!(
-        zero_qty_res.unwrap_err().code(),
-        tonic::Code::InvalidArgument
-    );
+    assert_eq!(zero_qty_res.unwrap_err().code(), tonic::Code::InvalidArgument);
 }

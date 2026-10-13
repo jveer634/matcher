@@ -8,3 +8,4 @@ src/gen/*
 !src/gen/mod.rs
 
 /data
+config.toml

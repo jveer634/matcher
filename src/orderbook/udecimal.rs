@@ -26,10 +26,7 @@ impl UDecimal {
     /// Creates a new `UDecimal` that must be strictly positive (> 0).
     pub fn new_strictly_positive(val: Decimal) -> Result<Self, String> {
         if val <= Decimal::ZERO {
-            Err(format!(
-                "Expected strictly positive value (> 0), got {}",
-                val
-            ))
+            Err(format!("Expected strictly positive value (> 0), got {}", val))
         } else {
             Ok(UDecimal(val))
         }

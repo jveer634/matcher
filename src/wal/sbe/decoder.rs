@@ -1,9 +1,8 @@
 use crate::wal::crc32::crc32;
 use crate::wal::sbe::types::{
-    CancelOrderSbe, SbeHeader, SnapshotMarkerSbe, SubmitOrderSbe, WalFrameHeader, WalPayload,
-    WalRecord, CANCEL_ORDER_BLOCK_LENGTH, SBE_HEADER_SIZE, SNAPSHOT_MARKER_BLOCK_LENGTH,
-    SUBMIT_ORDER_V1_BLOCK_LENGTH, SUBMIT_ORDER_V2_BLOCK_LENGTH, TEMPLATE_CANCEL_ORDER,
-    TEMPLATE_SNAPSHOT_MARKER, TEMPLATE_SUBMIT_ORDER,
+    CancelOrderSbe, SbeHeader, SnapshotMarkerSbe, SubmitOrderSbe, WalFrameHeader, WalPayload, WalRecord,
+    CANCEL_ORDER_BLOCK_LENGTH, SBE_HEADER_SIZE, SNAPSHOT_MARKER_BLOCK_LENGTH, SUBMIT_ORDER_V1_BLOCK_LENGTH,
+    SUBMIT_ORDER_V2_BLOCK_LENGTH, TEMPLATE_CANCEL_ORDER, TEMPLATE_SNAPSHOT_MARKER, TEMPLATE_SUBMIT_ORDER,
 };
 
 #[derive(Debug, Default)]
@@ -55,22 +54,14 @@ impl SbeDecoder {
 
         // 4. Decode SBE Body based on (template_id, version)
         let payload = match (sbe_header.template_id, sbe_header.version) {
-            (TEMPLATE_SUBMIT_ORDER, 1) => {
-                WalPayload::SubmitOrder(self.decode_submit_order_v1(body_bytes)?)
-            }
-            (TEMPLATE_SUBMIT_ORDER, v) if v >= 2 => {
-                WalPayload::SubmitOrder(self.decode_submit_order_v2(body_bytes)?)
-            }
-            (TEMPLATE_CANCEL_ORDER, 1..=u16::MAX) => {
-                WalPayload::CancelOrder(self.decode_cancel_order_v1(body_bytes)?)
-            }
+            (TEMPLATE_SUBMIT_ORDER, 1) => WalPayload::SubmitOrder(self.decode_submit_order_v1(body_bytes)?),
+            (TEMPLATE_SUBMIT_ORDER, v) if v >= 2 => WalPayload::SubmitOrder(self.decode_submit_order_v2(body_bytes)?),
+            (TEMPLATE_CANCEL_ORDER, 1..=u16::MAX) => WalPayload::CancelOrder(self.decode_cancel_order_v1(body_bytes)?),
             (TEMPLATE_SNAPSHOT_MARKER, 1..=u16::MAX) => {
                 WalPayload::SnapshotMarker(self.decode_snapshot_marker_v1(body_bytes)?)
             }
             (template, ver) => {
-                return Err(format!(
-                    "Unsupported SBE template_id: {template}, version: {ver}"
-                ));
+                return Err(format!("Unsupported SBE template_id: {template}, version: {ver}"));
             }
         };
 
@@ -191,9 +182,7 @@ impl SbeDecoder {
             ));
         }
 
-        let snapshot_seq = u64::from_le_bytes([
-            body[0], body[1], body[2], body[3], body[4], body[5], body[6], body[7],
-        ]);
+        let snapshot_seq = u64::from_le_bytes([body[0], body[1], body[2], body[3], body[4], body[5], body[6], body[7]]);
         let open_orders_count = u64::from_le_bytes([
             body[8], body[9], body[10], body[11], body[12], body[13], body[14], body[15],
         ]);

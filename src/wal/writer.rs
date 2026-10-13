@@ -7,12 +7,53 @@ use crate::wal::reader::WalReader;
 use crate::wal::sbe::encoder::SbeEncoder;
 
 /// Persistence sync policy for the Write-Ahead Log writer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SyncPolicy {
     /// Calls `file.sync_data()` after every append for zero-data-loss durability.
     Always,
     /// Buffers writes in OS page cache; explicit calls to `flush` or `sync` are required.
+    #[default]
     None,
+}
+
+impl std::str::FromStr for SyncPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "always" => Ok(SyncPolicy::Always),
+            "none" => Ok(SyncPolicy::None),
+            other => Err(format!("Invalid sync policy '{other}'. Expected 'always' or 'none'")),
+        }
+    }
+}
+
+impl std::fmt::Display for SyncPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SyncPolicy::Always => write!(f, "always"),
+            SyncPolicy::None => write!(f, "none"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SyncPolicy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse::<SyncPolicy>().map_err(serde::de::Error::custom)
+    }
+}
+
+impl serde::Serialize for SyncPolicy {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 /// Append-only Write-Ahead Log writer backed by an SBE encoder.
@@ -173,12 +214,7 @@ impl WalWriter {
     /// Appends a `CancelOrder` record to the WAL.
     ///
     /// Returns the sequence number assigned to this record.
-    pub fn append_cancel_order(
-        &mut self,
-        order_id: &str,
-        user_id: &str,
-        timestamp_ns: u64,
-    ) -> Result<u64, String> {
+    pub fn append_cancel_order(&mut self, order_id: &str, user_id: &str, timestamp_ns: u64) -> Result<u64, String> {
         let seq = self.next_sequence;
         let frame_bytes = self.encoder.encode_cancel_order(order_id, user_id, seq, timestamp_ns)?;
 
@@ -197,9 +233,9 @@ impl WalWriter {
         timestamp_ns: u64,
     ) -> Result<u64, String> {
         let seq = self.next_sequence;
-        let frame_bytes =
-            self.encoder
-                .encode_snapshot_marker(snapshot_seq, open_orders_count, seq, timestamp_ns);
+        let frame_bytes = self
+            .encoder
+            .encode_snapshot_marker(snapshot_seq, open_orders_count, seq, timestamp_ns);
 
         self.write_frame(&frame_bytes)?;
         self.next_sequence += 1;

@@ -112,12 +112,8 @@ impl WalFrameHeader {
         }
         let frame_len = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
         let crc32 = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        let sequence = u64::from_le_bytes([
-            buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
-        ]);
-        let timestamp_ns = u64::from_le_bytes([
-            buf[16], buf[17], buf[18], buf[19], buf[20], buf[21], buf[22], buf[23],
-        ]);
+        let sequence = u64::from_le_bytes([buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]]);
+        let timestamp_ns = u64::from_le_bytes([buf[16], buf[17], buf[18], buf[19], buf[20], buf[21], buf[22], buf[23]]);
 
         Ok(Self {
             frame_len,

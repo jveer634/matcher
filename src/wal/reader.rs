@@ -12,11 +12,7 @@ pub enum WalReadError {
     /// Standard I/O failure while reading from the file.
     Io(String),
     /// Data corruption detected: CRC32 checksum mismatch.
-    CorruptedCrc {
-        sequence: u64,
-        expected: u32,
-        actual: u32,
-    },
+    CorruptedCrc { sequence: u64, expected: u32, actual: u32 },
     /// Incomplete or truncated frame at the end of the file (e.g. crash during write).
     TornWrite {
         bytes_available: usize,
@@ -67,8 +63,8 @@ impl WalReader {
     /// Opens an existing WAL file for sequential reading.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let path_buf = path.as_ref().to_path_buf();
-        let file = File::open(&path_buf)
-            .map_err(|e| format!("Failed to open WAL file '{}': {e}", path_buf.display()))?;
+        let file =
+            File::open(&path_buf).map_err(|e| format!("Failed to open WAL file '{}': {e}", path_buf.display()))?;
 
         Ok(Self {
             reader: BufReader::new(file),

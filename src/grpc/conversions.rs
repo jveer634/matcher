@@ -1,6 +1,5 @@
 use crate::gen::order::v1::{
-    Order as ProtoOrder, OrderStatus as ProtoOrderStatus, OrderType as ProtoOrderType,
-    Side as ProtoSide,
+    Order as ProtoOrder, OrderStatus as ProtoOrderStatus, OrderType as ProtoOrderType, Side as ProtoSide,
 };
 use crate::gen::orderbook::v1::{BookLevel as ProtoBookLevel, Stats as ProtoStats};
 use crate::gen::trade::v1::Trade as ProtoTrade;
@@ -23,8 +22,7 @@ impl TryFrom<i32> for Side {
     type Error = String;
 
     fn try_from(val: i32) -> Result<Self, Self::Error> {
-        let proto =
-            ProtoSide::try_from(val).map_err(|_| format!("Unknown side integer value: {}", val))?;
+        let proto = ProtoSide::try_from(val).map_err(|_| format!("Unknown side integer value: {}", val))?;
         Side::try_from(proto)
     }
 }
@@ -51,9 +49,7 @@ impl TryFrom<ProtoOrderType> for OrderType {
         match proto_type {
             ProtoOrderType::Limit => Ok(OrderType::Limit),
             ProtoOrderType::Market => Ok(OrderType::Market),
-            ProtoOrderType::Unspecified => {
-                Err("Invalid OrderType: ORDER_TYPE_UNSPECIFIED".to_string())
-            }
+            ProtoOrderType::Unspecified => Err("Invalid OrderType: ORDER_TYPE_UNSPECIFIED".to_string()),
         }
     }
 }
@@ -62,8 +58,7 @@ impl TryFrom<i32> for OrderType {
     type Error = String;
 
     fn try_from(val: i32) -> Result<Self, Self::Error> {
-        let proto = ProtoOrderType::try_from(val)
-            .map_err(|_| format!("Unknown order type integer value: {}", val))?;
+        let proto = ProtoOrderType::try_from(val).map_err(|_| format!("Unknown order type integer value: {}", val))?;
         OrderType::try_from(proto)
     }
 }
@@ -92,9 +87,7 @@ impl TryFrom<ProtoOrderStatus> for OrderStatus {
             ProtoOrderStatus::Executed => Ok(OrderStatus::Executed),
             ProtoOrderStatus::Cancelled => Ok(OrderStatus::Cancelled),
             ProtoOrderStatus::PartiallyExecuted => Ok(OrderStatus::PartiallyExecuted),
-            ProtoOrderStatus::Unspecified => {
-                Err("Invalid OrderStatus: ORDER_STATUS_UNSPECIFIED".to_string())
-            }
+            ProtoOrderStatus::Unspecified => Err("Invalid OrderStatus: ORDER_STATUS_UNSPECIFIED".to_string()),
         }
     }
 }
@@ -103,8 +96,8 @@ impl TryFrom<i32> for OrderStatus {
     type Error = String;
 
     fn try_from(val: i32) -> Result<Self, Self::Error> {
-        let proto = ProtoOrderStatus::try_from(val)
-            .map_err(|_| format!("Unknown order status integer value: {}", val))?;
+        let proto =
+            ProtoOrderStatus::try_from(val).map_err(|_| format!("Unknown order status integer value: {}", val))?;
         OrderStatus::try_from(proto)
     }
 }
@@ -275,23 +268,14 @@ mod tests {
 
     #[test]
     fn test_order_type_conversions() {
-        assert_eq!(
-            OrderType::try_from(ProtoOrderType::Limit),
-            Ok(OrderType::Limit)
-        );
-        assert_eq!(
-            OrderType::try_from(ProtoOrderType::Market),
-            Ok(OrderType::Market)
-        );
+        assert_eq!(OrderType::try_from(ProtoOrderType::Limit), Ok(OrderType::Limit));
+        assert_eq!(OrderType::try_from(ProtoOrderType::Market), Ok(OrderType::Market));
         assert!(OrderType::try_from(ProtoOrderType::Unspecified).is_err());
     }
 
     #[test]
     fn test_order_status_conversions() {
-        assert_eq!(
-            OrderStatus::try_from(ProtoOrderStatus::Open),
-            Ok(OrderStatus::Open)
-        );
+        assert_eq!(OrderStatus::try_from(ProtoOrderStatus::Open), Ok(OrderStatus::Open));
         assert_eq!(
             OrderStatus::try_from(ProtoOrderStatus::Executed),
             Ok(OrderStatus::Executed)

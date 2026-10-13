@@ -156,8 +156,7 @@ impl WalPruner {
         let mut symbol_snapshots: HashMap<String, Vec<LogFileEntry>> = HashMap::new();
         let mut symbol_wal_segments: HashMap<String, Vec<LogFileEntry>> = HashMap::new();
 
-        let entries = fs::read_dir(dir)
-            .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+        let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -165,10 +164,7 @@ impl WalPruner {
                 continue;
             }
 
-            let file_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default();
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
 
             let Ok(metadata) = fs::metadata(&path) else {
                 continue;
