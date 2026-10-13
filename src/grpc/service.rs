@@ -26,11 +26,20 @@ impl MatcherServiceImpl {
 
 #[tonic::async_trait]
 impl MatcherService for MatcherServiceImpl {
+    #[tracing::instrument(skip(self, request))]
     async fn submit_order(
         &self,
         request: Request<SubmitOrderRequest>,
     ) -> Result<Response<SubmitOrderResponse>, Status> {
         let req = request.into_inner();
+        tracing::debug!(
+            order_id = %req.order_id,
+            user_id = %req.user_id,
+            symbol = %req.symbol,
+            side = req.side,
+            order_type = req.order_type,
+            "Received SubmitOrder request"
+        );
 
         let side = Side::try_from(req.side).map_err(Status::invalid_argument)?;
         let order_type = OrderType::try_from(req.order_type).map_err(Status::invalid_argument)?;
@@ -56,12 +65,20 @@ impl MatcherService for MatcherServiceImpl {
                 quantity,
             )
             .map_err(|e| {
+                tracing::warn!(order_id = %req.order_id, symbol = %req.symbol, error = %e, "SubmitOrder rejected");
                 if e.contains("Unknown symbol") {
                     Status::not_found(e)
                 } else {
                     Status::invalid_argument(e)
                 }
             })?;
+
+        tracing::debug!(
+            order_id = %match_res.order_id,
+            symbol = %req.symbol,
+            trades_count = match_res.trades.len(),
+            "SubmitOrder executed successfully"
+        );
 
         let current_order = self
             .engine
@@ -78,16 +95,24 @@ impl MatcherService for MatcherServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip(self, request))]
     async fn cancel_order(
         &self,
         request: Request<CancelOrderRequest>,
     ) -> Result<Response<CancelOrderResponse>, Status> {
         let req = request.into_inner();
+        tracing::debug!(
+            order_id = %req.order_id,
+            symbol = %req.symbol,
+            user_id = %req.user_id,
+            "Received CancelOrder request"
+        );
 
         let order = self
             .engine
             .cancel_order(&req.symbol, &req.order_id, &req.user_id)
             .map_err(|err| {
+                tracing::warn!(order_id = %req.order_id, symbol = %req.symbol, error = %err, "CancelOrder rejected");
                 if err.contains("Unauthorized") {
                     Status::permission_denied(err)
                 } else if err.contains("not found") || err.contains("Unknown symbol") {
@@ -97,18 +122,24 @@ impl MatcherService for MatcherServiceImpl {
                 }
             })?;
 
+        tracing::debug!(order_id = %req.order_id, symbol = %req.symbol, "CancelOrder succeeded");
+
         Ok(Response::new(CancelOrderResponse {
             order: Some(ProtoOrder::from(&order)),
         }))
     }
 
+    #[tracing::instrument(skip(self, request))]
     async fn get_depth(&self, request: Request<GetDepthRequest>) -> Result<Response<GetDepthResponse>, Status> {
         let req = request.into_inner();
 
         let (bids, asks) = self
             .engine
             .get_depth(&req.symbol, req.limit as usize)
-            .map_err(Status::not_found)?;
+            .map_err(|e| {
+                tracing::warn!(symbol = %req.symbol, error = %e, "GetDepth failed");
+                Status::not_found(e)
+            })?;
 
         let bids_proto = bids.into_iter().map(ProtoBookLevel::from).collect();
         let asks_proto = asks.into_iter().map(ProtoBookLevel::from).collect();
@@ -120,23 +151,31 @@ impl MatcherService for MatcherServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip(self, request))]
     async fn get_stats(&self, request: Request<GetStatsRequest>) -> Result<Response<GetStatsResponse>, Status> {
         let req = request.into_inner();
 
-        let stats = self.engine.get_stats(&req.symbol).map_err(Status::not_found)?;
+        let stats = self.engine.get_stats(&req.symbol).map_err(|e| {
+            tracing::warn!(symbol = %req.symbol, error = %e, "GetStats failed");
+            Status::not_found(e)
+        })?;
 
         Ok(Response::new(GetStatsResponse {
             stats: Some(ProtoStats::from(&stats)),
         }))
     }
 
+    #[tracing::instrument(skip(self, request))]
     async fn get_trade_history(
         &self,
         request: Request<GetTradeHistoryRequest>,
     ) -> Result<Response<GetTradeHistoryResponse>, Status> {
         let req = request.into_inner();
 
-        let trades = self.engine.get_trade_history(&req.symbol).map_err(Status::not_found)?;
+        let trades = self.engine.get_trade_history(&req.symbol).map_err(|e| {
+            tracing::warn!(symbol = %req.symbol, error = %e, "GetTradeHistory failed");
+            Status::not_found(e)
+        })?;
 
         let trades_proto = trades.into_iter().map(ProtoTrade::from).collect();
 
@@ -146,6 +185,7 @@ impl MatcherService for MatcherServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip(self, request))]
     async fn register_symbol(
         &self,
         request: Request<RegisterSymbolRequest>,
@@ -160,14 +200,21 @@ impl MatcherService for MatcherServiceImpl {
         };
 
         match self.engine.register_symbol(&req.symbol, listing_price) {
-            Ok(()) => Ok(Response::new(RegisterSymbolResponse {
-                success: true,
-                message: format!("Symbol '{}' registered successfully", req.symbol),
-            })),
-            Err(e) => Err(Status::already_exists(e)),
+            Ok(()) => {
+                tracing::info!(symbol = %req.symbol, "RegisterSymbol succeeded via gRPC");
+                Ok(Response::new(RegisterSymbolResponse {
+                    success: true,
+                    message: format!("Symbol '{}' registered successfully", req.symbol),
+                }))
+            }
+            Err(e) => {
+                tracing::warn!(symbol = %req.symbol, error = %e, "RegisterSymbol rejected via gRPC");
+                Err(Status::already_exists(e))
+            }
         }
     }
 
+    #[tracing::instrument(skip(self, _request))]
     async fn list_symbols(
         &self,
         _request: Request<ListSymbolsRequest>,

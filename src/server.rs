@@ -64,40 +64,38 @@ impl Server {
     pub async fn serve(mut self) -> Result<(), Box<dyn std::error::Error>> {
         let service = MatcherServiceImpl::new(Arc::clone(&self.engine));
 
-        println!("=======================================================");
-        println!("  Matcher High-Performance gRPC Service");
-        println!("=======================================================");
-        println!("  Listening on: http://{}", self.addr);
-        println!("  Registered Symbol Shards: {:?}", self.engine.list_symbols());
-        println!("  WAL Pruner Interval: {:?}", self.pruner.config().interval);
-        println!("  WAL Snapshots Retained: {}", self.pruner.config().retain_snapshots);
-        println!("  gRPC Service: engine.v1.MatcherService");
-        println!("=======================================================\n");
+        tracing::info!(
+            addr = %self.addr,
+            symbols = ?self.engine.list_symbols(),
+            pruner_interval_secs = self.pruner.config().interval.as_secs(),
+            pruner_retain_snapshots = self.pruner.config().retain_snapshots,
+            "Matcher High-Performance gRPC Service listening"
+        );
 
         let serve_res = tonic::transport::Server::builder()
             .add_service(MatcherServiceServer::new(service))
             .serve_with_shutdown(self.addr, async {
                 if let Err(err) = tokio::signal::ctrl_c().await {
-                    eprintln!("Failed to install Ctrl+C signal handler: {err}");
+                    tracing::error!(error = %err, "Failed to install Ctrl+C signal handler");
                 } else {
-                    println!("\nShutdown signal received. Gracefully stopping services...");
+                    tracing::info!("Shutdown signal received. Gracefully stopping services...");
                 }
             })
             .await;
 
         // 1. Gracefully stop attached background pruner on shutdown
         if let Some(handle) = self.pruner_handle.take() {
-            println!("Stopping background WAL pruner task...");
+            tracing::info!("Stopping background WAL pruner task...");
             handle.stop().await;
         }
 
         // 2. Run parallel shutdown agents across all symbol shards (final snapshot checkpoint + WAL buffer flush)
-        println!("Executing parallel shutdown agents (final snapshot & WAL flush)...");
+        tracing::info!("Executing parallel shutdown agents (final snapshot & WAL flush)...");
         if let Err(err) = self.engine.shutdown_parallel(true).await {
-            eprintln!("Error during parallel shutdown agents: {err}");
+            tracing::error!(error = %err, "Error during parallel shutdown agents");
         }
 
-        println!("Matcher service stopped cleanly.");
+        tracing::info!("Matcher service stopped cleanly");
 
         serve_res.map_err(Into::into)
     }
