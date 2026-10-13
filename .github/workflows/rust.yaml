@@ -18,6 +18,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Copy example configuration
+        run: cp config.example.toml config.toml
+
       - name: Set up Buf
         uses: bufbuild/buf-setup-action@v1
 

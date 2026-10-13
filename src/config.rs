@@ -515,8 +515,17 @@ mod tests {
 
     #[test]
     fn test_load_config_toml_file() {
-        let loaded = AppConfig::load_with_path(Some("config.toml"));
-        assert!(loaded.is_ok());
+        let config_path = if std::path::Path::new("config.toml").exists() {
+            "config.toml"
+        } else {
+            "config.example.toml"
+        };
+        let loaded = AppConfig::load_with_path(Some(config_path));
+        assert!(
+            loaded.is_ok(),
+            "Failed to load config from {config_path}: {:?}",
+            loaded.err()
+        );
         let config = loaded.unwrap();
         assert_eq!(config.server.port, 50051);
         assert_eq!(config.wal.sync_policy, SyncPolicy::None);
