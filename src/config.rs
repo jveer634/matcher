@@ -53,6 +53,9 @@ pub struct ServerConfig {
     /// TCP port to listen on.
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Enable debug-level logging.
+    #[serde(default)]
+    pub is_debug: bool,
 }
 
 fn default_host() -> String {
@@ -68,6 +71,7 @@ impl Default for ServerConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            is_debug: false,
         }
     }
 }
@@ -243,6 +247,9 @@ pub struct AppConfig {
     /// Initial symbol shards registered on startup.
     #[serde(default)]
     pub symbols: Vec<SymbolConfig>,
+    /// Global debug logging flag.
+    #[serde(default)]
+    pub is_debug: bool,
 }
 
 impl Default for AppConfig {
@@ -252,11 +259,18 @@ impl Default for AppConfig {
             wal: WalConfig::default(),
             pruner: PrunerConfig::default(),
             symbols: vec![],
+            is_debug: false,
         }
     }
 }
 
 impl AppConfig {
+    /// Returns true if either root or server-level `is_debug` flag is enabled.
+    #[must_use]
+    pub fn is_debug(&self) -> bool {
+        self.is_debug || self.server.is_debug
+    }
+
     /// Validates the entire configuration, returning an error if any invariant fails.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.server.validate().map_err(ConfigError::Validation)?;
@@ -293,6 +307,8 @@ impl AppConfig {
         builder = builder
             .set_default("server.host", def.server.host)?
             .set_default("server.port", def.server.port)?
+            .set_default("server.is_debug", def.server.is_debug)?
+            .set_default("is_debug", def.is_debug)?
             .set_default("wal.dir", def.wal.dir.to_string_lossy().to_string())?
             .set_default("wal.sync_policy", def.wal.sync_policy.to_string())?
             .set_default("pruner.interval_secs", def.pruner.interval_secs)?
