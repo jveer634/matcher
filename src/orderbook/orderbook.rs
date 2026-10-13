@@ -8,7 +8,7 @@ use super::{
     udecimal::UDecimal,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OrderBook {
     pair_id: String,
     id_generator: IdGenerator,

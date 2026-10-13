@@ -16,6 +16,15 @@ pub struct IdGenerator {
     counter: AtomicU64,
 }
 
+impl Clone for IdGenerator {
+    fn clone(&self) -> Self {
+        Self {
+            pair_id: self.pair_id.clone(),
+            counter: AtomicU64::new(self.counter.load(Ordering::SeqCst)),
+        }
+    }
+}
+
 impl IdGenerator {
     /// Creates a new [`IdGenerator`] instance scoped to a specific trading pair symbol.
     pub fn new(pair_id: String) -> Self {
