@@ -238,3 +238,75 @@ async fn test_grpc_validation_errors() {
     assert!(zero_qty_res.is_err());
     assert_eq!(zero_qty_res.unwrap_err().code(), tonic::Code::InvalidArgument);
 }
+
+#[tokio::test]
+async fn test_grpc_health_check_service() {
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter.set_service_status("", tonic_health::ServingStatus::Serving).await;
+    health_reporter
+        .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::Serving)
+        .await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server_handle = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(health_service)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    let channel = tonic::transport::Channel::from_shared(format!("http://{addr}"))
+        .unwrap()
+        .connect()
+        .await
+        .unwrap();
+    let mut client = tonic_health::pb::health_client::HealthClient::new(channel);
+
+    // 1. Check overall server health
+    let resp = client
+        .check(tonic_health::pb::HealthCheckRequest {
+            service: "".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        resp.status,
+        tonic_health::pb::health_check_response::ServingStatus::Serving as i32
+    );
+
+    // 2. Check MatcherService health
+    let resp_svc = client
+        .check(tonic_health::pb::HealthCheckRequest {
+            service: "engine.v1.MatcherService".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        resp_svc.status,
+        tonic_health::pb::health_check_response::ServingStatus::Serving as i32
+    );
+
+    // 3. Mark NOT_SERVING (simulating shutdown) and verify transition
+    health_reporter
+        .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::NotServing)
+        .await;
+    let resp_down = client
+        .check(tonic_health::pb::HealthCheckRequest {
+            service: "engine.v1.MatcherService".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        resp_down.status,
+        tonic_health::pb::health_check_response::ServingStatus::NotServing as i32
+    );
+
+    server_handle.abort();
+}
+

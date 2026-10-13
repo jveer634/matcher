@@ -62,6 +62,12 @@ impl Server {
     /// Runs the gRPC server until shutdown.
     /// Gracefully terminates attached background tasks upon exit.
     pub async fn serve(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+        health_reporter.set_service_status("", tonic_health::ServingStatus::Serving).await;
+        health_reporter
+            .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::Serving)
+            .await;
+
         let service = MatcherServiceImpl::new(Arc::clone(&self.engine));
 
         tracing::info!(
@@ -69,10 +75,11 @@ impl Server {
             symbols = ?self.engine.list_symbols(),
             pruner_interval_secs = self.pruner.config().interval.as_secs(),
             pruner_retain_snapshots = self.pruner.config().retain_snapshots,
-            "Matcher High-Performance gRPC Service listening"
+            "Matcher High-Performance gRPC Service listening (with Health Protocol)"
         );
 
         let serve_res = tonic::transport::Server::builder()
+            .add_service(health_service)
             .add_service(MatcherServiceServer::new(service))
             .serve_with_shutdown(self.addr, async {
                 if let Err(err) = tokio::signal::ctrl_c().await {
@@ -81,6 +88,11 @@ impl Server {
                     tracing::info!("Shutdown signal received. Gracefully stopping services...");
                 }
             })
+            .await;
+
+        health_reporter.set_service_status("", tonic_health::ServingStatus::NotServing).await;
+        health_reporter
+            .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::NotServing)
             .await;
 
         // 1. Gracefully stop attached background pruner on shutdown
