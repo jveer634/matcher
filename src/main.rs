@@ -17,7 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.server.validate().map_err(matcher::ConfigError::Validation)?;
     }
 
-    // 2. Initialize ShardedEngine (matching engine) with WAL persistence
+    // 2. Initialize structured tracing with configuration (caller + is_debug)
+    matcher::init_tracing_with_config(config.is_debug(), None);
+
+    // 3. Initialize ShardedEngine (matching engine) with WAL persistence
     let engine = Arc::new(ShardedEngine::with_wal(&config.wal.dir, config.wal.sync_policy));
 
     // Run parallel recovery agents across all configured symbol shards (replays snapshots + delta WAL)

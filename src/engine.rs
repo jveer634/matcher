@@ -76,6 +76,7 @@ impl ShardedEngine {
         };
 
         shards.insert(symbol.to_string(), Arc::new(RwLock::new(matcher)));
+        tracing::info!(symbol = %symbol, "Registered symbol shard");
         Ok(())
     }
 
@@ -94,6 +95,8 @@ impl ShardedEngine {
         if symbol_specs.is_empty() {
             return Ok(0);
         }
+
+        tracing::info!(count = symbol_specs.len(), "Starting parallel shard recovery agents");
 
         // Verify no duplicate symbols in the input list
         let mut seen = std::collections::HashSet::new();
@@ -144,6 +147,7 @@ impl ShardedEngine {
             shards.insert(sym, Arc::new(RwLock::new(matcher)));
         }
 
+        tracing::info!(count, "Parallel shard recovery completed");
         Ok(count)
     }
 
@@ -276,6 +280,7 @@ impl ShardedEngine {
     /// 2. Runs the WAL pruner to reclaim obsolete segments and old snapshots.
     pub async fn checkpoint_and_prune(&self, pruner: &WalPruner) -> Result<PruneStats, String> {
         let base_dir = self.wal_dir.as_deref().unwrap_or_else(|| &pruner.config().base_dir);
+        tracing::debug!("Executing periodic checkpoint and pruning sweep");
 
         let _ = self.create_snapshots(base_dir).await?;
         pruner.prune_once()
@@ -293,6 +298,12 @@ impl ShardedEngine {
         if shards.is_empty() {
             return Ok(());
         }
+
+        tracing::info!(
+            count = shards.len(),
+            create_final_snapshot,
+            "Executing parallel shard shutdown agents"
+        );
 
         // 1. Parallel final snapshot write across all shards if requested
         if create_final_snapshot {
@@ -318,6 +329,7 @@ impl ShardedEngine {
                 .map_err(|join_err| format!("Shutdown flush agent panicked: {join_err}"))??;
         }
 
+        tracing::info!("Parallel shard shutdown completed");
         Ok(())
     }
 

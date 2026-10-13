@@ -261,7 +261,7 @@ impl WalPruner {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(err) = self.prune_once() {
-                            eprintln!("WAL Pruner error: {err}");
+                            tracing::error!(error = %err, "WAL Pruner error");
                         }
                     }
                     _ = shutdown_rx.changed() => {
@@ -298,7 +298,7 @@ impl WalPruner {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(err) = engine.checkpoint_and_prune(&self).await {
-                            eprintln!("WAL Checkpoint and Pruning error: {err}");
+                            tracing::error!(error = %err, "WAL Checkpoint and Pruning error");
                         }
                     }
                     _ = shutdown_rx.changed() => {
