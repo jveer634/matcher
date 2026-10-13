@@ -9,3 +9,7 @@ src/gen/*
 
 /data
 config.toml
+
+# Generated Benchmark Reports
+*benchmark_report*
+*.html
