@@ -235,12 +235,7 @@ fn run_workload_on_engine(
         }
     }
 
-    (
-        orders_matched,
-        trades_generated,
-        total_base_volume,
-        latencies_ns,
-    )
+    (orders_matched, trades_generated, total_base_volume, latencies_ns)
 }
 
 fn run_test_on_cores(cli: &BenchCli, assigned_cores: usize, baseline_single_core_ops: f64) -> CoreBenchmarkResult {
@@ -467,7 +462,10 @@ fn write_markdown(path: &str, results: &[CoreBenchmarkResult], memory_budget_mb:
     writeln!(file)?;
 
     writeln!(file, "## 2. Trade Execution & Volume Statistics\n")?;
-    writeln!(file, "| Assigned CPU | Total Orders | Orders Matched | Fill Rate | Trades Generated | Traded Base Volume |")?;
+    writeln!(
+        file,
+        "| Assigned CPU | Total Orders | Orders Matched | Fill Rate | Trades Generated | Traded Base Volume |"
+    )?;
     writeln!(file, "| :--- | :--- | :--- | :--- | :--- | :--- |")?;
     for res in results {
         let fill_rate = (res.orders_matched as f64 / res.total_orders as f64) * 100.0;
@@ -522,7 +520,10 @@ fn write_html(path: &str, results: &[CoreBenchmarkResult], memory_budget_mb: f64
     writeln!(file, "<html lang=\"en\">")?;
     writeln!(file, "<head>")?;
     writeln!(file, "  <meta charset=\"UTF-8\">")?;
-    writeln!(file, "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">")?;
+    writeln!(
+        file,
+        "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+    )?;
     writeln!(file, "  <title>Matcher Benchmark Report</title>")?;
     writeln!(file, "  <style>")?;
     writeln!(file, "    :root {{")?;
@@ -537,19 +538,40 @@ fn write_html(path: &str, results: &[CoreBenchmarkResult], memory_budget_mb: f64
     writeln!(file, "    }}")?;
     writeln!(file, "    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; line-height: 1.5; }}")?;
     writeln!(file, "    .container {{ max-width: 1080px; margin: 0 auto; }}")?;
-    writeln!(file, "    header {{ margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }}")?;
-    writeln!(file, "    h1 {{ color: var(--text-bright); margin: 0 0 0.5rem 0; font-size: 2rem; }}")?;
+    writeln!(
+        file,
+        "    header {{ margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }}"
+    )?;
+    writeln!(
+        file,
+        "    h1 {{ color: var(--text-bright); margin: 0 0 0.5rem 0; font-size: 2rem; }}"
+    )?;
     writeln!(file, "    .meta {{ font-size: 0.9rem; color: #8b949e; }}")?;
     writeln!(file, "    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 2rem; }}")?;
     writeln!(file, "    .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }}")?;
-    writeln!(file, "    .card-label {{ font-size: 0.85rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }}")?;
-    writeln!(file, "    .card-value {{ font-size: 1.8rem; font-weight: 700; color: var(--text-bright); margin-top: 0.25rem; }}")?;
+    writeln!(
+        file,
+        "    .card-label {{ font-size: 0.85rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }}"
+    )?;
+    writeln!(
+        file,
+        "    .card-value {{ font-size: 1.8rem; font-weight: 700; color: var(--text-bright); margin-top: 0.25rem; }}"
+    )?;
     writeln!(file, "    .card-highlight {{ color: var(--accent-green); }}")?;
     writeln!(file, "    section {{ background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }}")?;
     writeln!(file, "    h2 {{ color: var(--text-bright); margin-top: 0; font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }}")?;
-    writeln!(file, "    table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.95rem; }}")?;
-    writeln!(file, "    th, td {{ padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }}")?;
-    writeln!(file, "    th {{ background: #21262d; color: var(--text-bright); font-weight: 600; }}")?;
+    writeln!(
+        file,
+        "    table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.95rem; }}"
+    )?;
+    writeln!(
+        file,
+        "    th, td {{ padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }}"
+    )?;
+    writeln!(
+        file,
+        "    th {{ background: #21262d; color: var(--text-bright); font-weight: 600; }}"
+    )?;
     writeln!(file, "    tr:hover td {{ background: #1f242c; }}")?;
     writeln!(file, "    .badge-pass {{ display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; font-size: 0.85rem; background: #23863626; color: var(--accent-green); border: 1px solid #2386364d; }}")?;
     writeln!(file, "  </style>")?;
@@ -558,7 +580,11 @@ fn write_html(path: &str, results: &[CoreBenchmarkResult], memory_budget_mb: f64
     writeln!(file, "  <div class=\"container\">")?;
     writeln!(file, "    <header>")?;
     writeln!(file, "      <h1>Matcher Engine Benchmark Report</h1>")?;
-    writeln!(file, "      <div class=\"meta\">Generated on {} &bull; Hardware-Constrained Microservice Suite</div>", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"))?;
+    writeln!(
+        file,
+        "      <div class=\"meta\">Generated on {} &bull; Hardware-Constrained Microservice Suite</div>",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    )?;
     writeln!(file, "    </header>")?;
 
     writeln!(file, "    <div class=\"cards\">")?;

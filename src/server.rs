@@ -63,7 +63,9 @@ impl Server {
     /// Gracefully terminates attached background tasks upon exit.
     pub async fn serve(mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-        health_reporter.set_service_status("", tonic_health::ServingStatus::Serving).await;
+        health_reporter
+            .set_service_status("", tonic_health::ServingStatus::Serving)
+            .await;
         health_reporter
             .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::Serving)
             .await;
@@ -90,7 +92,9 @@ impl Server {
             })
             .await;
 
-        health_reporter.set_service_status("", tonic_health::ServingStatus::NotServing).await;
+        health_reporter
+            .set_service_status("", tonic_health::ServingStatus::NotServing)
+            .await;
         health_reporter
             .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::NotServing)
             .await;

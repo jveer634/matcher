@@ -1,0 +1,26 @@
+services:
+  matcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: matcher:latest
+    container_name: matcher-engine
+    restart: unless-stopped
+    ports:
+      - "50051:50051"
+    environment:
+      - RUST_LOG=info
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=50051
+    volumes:
+      - matcher-data:/app/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/grpc-health-probe", "-addr=:50051"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  matcher-data:
+    driver: local

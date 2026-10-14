@@ -46,8 +46,7 @@ pub fn init_tracing_with_config(is_debug: bool, format_override: Option<LogForma
         "info"
     };
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_filter_str));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter_str));
 
     let builder = fmt::Subscriber::builder().with_env_filter(filter);
 

@@ -242,7 +242,9 @@ async fn test_grpc_validation_errors() {
 #[tokio::test]
 async fn test_grpc_health_check_service() {
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-    health_reporter.set_service_status("", tonic_health::ServingStatus::Serving).await;
+    health_reporter
+        .set_service_status("", tonic_health::ServingStatus::Serving)
+        .await;
     health_reporter
         .set_service_status("engine.v1.MatcherService", tonic_health::ServingStatus::Serving)
         .await;
@@ -309,4 +311,3 @@ async fn test_grpc_health_check_service() {
 
     server_handle.abort();
 }
-

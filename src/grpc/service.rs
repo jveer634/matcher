@@ -133,13 +133,10 @@ impl MatcherService for MatcherServiceImpl {
     async fn get_depth(&self, request: Request<GetDepthRequest>) -> Result<Response<GetDepthResponse>, Status> {
         let req = request.into_inner();
 
-        let (bids, asks) = self
-            .engine
-            .get_depth(&req.symbol, req.limit as usize)
-            .map_err(|e| {
-                tracing::warn!(symbol = %req.symbol, error = %e, "GetDepth failed");
-                Status::not_found(e)
-            })?;
+        let (bids, asks) = self.engine.get_depth(&req.symbol, req.limit as usize).map_err(|e| {
+            tracing::warn!(symbol = %req.symbol, error = %e, "GetDepth failed");
+            Status::not_found(e)
+        })?;
 
         let bids_proto = bids.into_iter().map(ProtoBookLevel::from).collect();
         let asks_proto = asks.into_iter().map(ProtoBookLevel::from).collect();

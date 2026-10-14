@@ -1,0 +1,14 @@
+target/
+data/
+.git/
+.github/
+.idea/
+.vscode/
+.gemini/
+*.log
+*.snap
+*.wal
+*.html
+*benchmark_report*
+TODO.md
+docs/
